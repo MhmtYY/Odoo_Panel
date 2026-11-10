@@ -1,0 +1,10 @@
+[Unit]
+Description=Odoo Yönetim Paneli gece yedeği (panelin bütün ortamları; çalışan ajana istek gönderir)
+After=odoo-panel-ajan.service
+Requires=odoo-panel-ajan.service
+
+[Service]
+Type=oneshot
+WorkingDirectory=/opt/odoo-panel/kod
+EnvironmentFile=/opt/odoo-panel/ayar/ajan.env
+ExecStart=/usr/bin/python3 -m ajan gece-yedegi

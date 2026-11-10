@@ -1,0 +1,17 @@
+[Unit]
+Description=Odoo Yönetim Paneli ajanı (panel.vekosis.com için Docker, PostgreSQL ve git işleri)
+After=docker.service network-online.target
+Requires=docker.service
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/odoo-panel/kod
+EnvironmentFile=/opt/odoo-panel/ayar/ajan.env
+ExecStart=/usr/bin/python3 -m ajan
+Restart=on-failure
+RestartSec=5
+# iş günlükleri ve yedekler yalnız root'a açık
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target

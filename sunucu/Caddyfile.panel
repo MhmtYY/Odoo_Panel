@@ -1,0 +1,34 @@
+# Odoo Yönetim Paneli blokları: /opt/edge/etc/Caddyfile'ın sonuna eklenir (kurulum betiği önce yedek alır).
+# DNS: panel ve *.panel A kayıtları -> 89.167.114.61
+# Ortam sertifikaları yalnız panelin kaydettiği adlar için alınır (/opt/edge/etc/tenants/<ad>.panel.vekosis.com);
+# isteğe bağlı SSL denetimi mevcut :5555 bloğuyla aynıdır.
+
+# Panel arayüzü ve GitHub webhook'u
+panel.vekosis.com {
+    request_body {
+        max_size 64MB
+    }
+    encode zstd gzip
+    header Strict-Transport-Security "max-age=31536000"
+    reverse_proxy pnl-panel:8080 {
+        request_buffers 64MB
+    }
+}
+
+# Panelin açtığı ortamlar: <ad>.panel.vekosis.com -> pnl-<ad>, <ad>-staging.panel.vekosis.com -> pnl-<ad>-staging
+*.panel.vekosis.com {
+    tls {
+        on_demand
+    }
+    @dbyonetici path /web/database /web/database/*
+    respond @dbyonetici "Erisim yok" 403
+    request_body {
+        max_size 256MB
+    }
+    encode zstd gzip
+    header Strict-Transport-Security "max-age=31536000"
+    reverse_proxy /websocket* pnl-{labels.3}:8072
+    reverse_proxy pnl-{labels.3}:8069 {
+        request_buffers 16MB
+    }
+}

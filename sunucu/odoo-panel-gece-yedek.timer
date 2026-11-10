@@ -1,0 +1,10 @@
+[Unit]
+Description=Odoo Yönetim Paneli gece yedeği zamanlayıcısı (ERP 03:15, test platformu 03:50 ile çakışmaz)
+
+[Timer]
+OnCalendar=*-*-* 04:20:00
+RandomizedDelaySec=300
+Persistent=true
+
+[Install]
+WantedBy=timers.target
