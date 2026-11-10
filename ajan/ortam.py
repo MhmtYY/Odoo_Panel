@@ -109,8 +109,9 @@ class Ortamlar:
     def compose_yaz(self, o):
         dizin = self.dizin(o["odoo"], o["ad"])
         dizin.mkdir(parents=True, exist_ok=True)
-        Path(o["ek_addons"]).mkdir(parents=True, exist_ok=True)
-        Path(o["kod"]).mkdir(parents=True, exist_ok=True)
+        for klasor in (o["ek_addons"], o["kod"]):
+            Path(klasor).mkdir(parents=True, exist_ok=True)
+            Path(klasor).chmod(0o755)
         metin = f"""# Odoo Yönetim Paneli tarafından üretildi; elle değiştirmeyin (deploy yeniden yazar).
 name: {o['konteyner']}
 services:

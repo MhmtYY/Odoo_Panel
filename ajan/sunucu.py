@@ -169,6 +169,9 @@ class Istek(BaseHTTPRequestHandler):
         if self.servis.ayar.kuru:
             return True
         ip = self.client_address[0]
+        # sunucunun kendisi (gece yedeği zamanlayıcısı, "python3 -m ajan saglik"); konteynerler kendi IP'leriyle gelir
+        if ip in ("127.0.0.1", self.servis.ayar.adres):
+            return True
         return ip in self._panel_ipleri() or ip in self._panel_ipleri(yenile=True)
 
     # -- yanıt

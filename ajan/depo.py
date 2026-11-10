@@ -154,6 +154,7 @@ class Depo:
             if hedef.exists():
                 shutil.rmtree(hedef)
             icerik.rename(hedef)
+            os.chmod(hedef, 0o755)
         finally:
             shutil.rmtree(gecici, ignore_errors=True)
         return hedef

@@ -73,7 +73,7 @@ class Ayar:
         for yol in (self.ayar_dizin, self.odoolar, self.depolar, self.yedekler, self.isler, self.gecici,
                     self.onbellek, self.ayar_dizin / "anahtarlar"):
             yol.mkdir(parents=True, exist_ok=True)
-        for yol in (self.ayar_dizin, self.yedekler, self.gecici):
+        for yol in (self.ayar_dizin, self.yedekler, self.gecici, self.isler):
             try:
                 os.chmod(yol, 0o700)
             except OSError:

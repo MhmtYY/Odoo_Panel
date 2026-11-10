@@ -35,6 +35,27 @@ yedekler/<ad>/<ortam>/
 isler/           iş kayıtları ve günlükleri
 ```
 
+## Sunucuya kurulum
+
+1. Dizüstünde paketleyin: `python araclar/paketle.py`. Sonuç `../dagitim/odoo_panel_<sürüm>.tar.gz` ve `.sha256` olur.
+   - Paket yalnız `ajan/`, `panel/` ve `sunucu/` klasörlerini içerir; satır sonları LF yapılır.
+   - Sürüm commit özetidir. Commit'lenmemiş değişiklik varsa ardına içerik özeti eklenir.
+2. Paketi sunucuya kopyalayın, `/opt/odoo-panel/paket/<sürüm>` altına açın ve `odoo-panel/sunucu/kur.sh` betiğini root olarak çalıştırın.
+
+`kur.sh` tekrar çalıştırılabilir; güncelleme de aynı yoldan yapılır. Ayarlara, kullanıcılara ve ortamlara dokunmaz. Yaptıkları:
+
+- ajanı systemd hizmeti olarak kurar (`odoo-panel-ajan`, vtest ağ geçidi:8098) ve gece yedeği zamanlayıcısını açar (04:20);
+- `pnl-panel` konteynerini açar;
+- Caddy'ye `panel.caddy` dosyasını ve Caddyfile'a tek bir `import` satırını ekler:
+  - önce yedek alır ve yeni yapılandırmayı doğrular;
+  - değişiklikten önce 200 dönen ERP, test ve müşteri adreslerinden biri sonra dönmezse eski Caddyfile'ı geri koyar;
+  - DNS'te `panel.vekosis.com` bu sunucuyu göstermiyorsa bu adımı atlar.
+- ilk platform yöneticisini (`vekosis`) açar. Şifresi `/opt/odoo-panel/panel/ILK-KULLANICI.txt` dosyasına yazılır, ekrana basılmaz.
+
+Geri dönüş: `bash /opt/odoo-panel/kod/sunucu/kaldir.sh`. Caddy satırını çıkarır, panel konteynerini ve ajanı durdurur; veriye ve ortam konteynerlerine dokunmaz.
+
+Eski test platformunun `kur.sh` betiği Caddyfile'ı baştan yazar. O çalışırsa paneldeki `import` satırı gider. Panelin `kur.sh` betiğini tekrar çalıştırmak satırı geri koyar.
+
 ## Bağlanan kurulumlar
 
 Panelin kurmadığı Odoo'lar (erp.vekosis.com, test platformundaki ortamlar) "bağlanır". Bağlarken hiçbir şey yeniden başlatılmaz, compose dosyalarına dokunulmaz. Bağlanan kurulumda panel şunları yapar:

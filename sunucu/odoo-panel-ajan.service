@@ -10,8 +10,8 @@ EnvironmentFile=/opt/odoo-panel/ayar/ajan.env
 ExecStart=/usr/bin/python3 -m ajan
 Restart=on-failure
 RestartSec=5
-# iş günlükleri ve yedekler yalnız root'a açık
-UMask=0077
+# Odoo konteyneri kodu, ek modülleri ve odoo.conf'u okuyabilmeli; gizli dosyalar kodda ayrıca 600/700 yapılır
+UMask=0022
 
 [Install]
 WantedBy=multi-user.target
