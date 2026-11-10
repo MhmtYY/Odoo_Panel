@@ -11,7 +11,7 @@ GitHub'a bağlı, çok Odoo'lu yönetim paneli. Sunucuda `panel.vekosis.com` adr
 | `sunucu/` | Kurulum betiği, systemd birimleri, Caddy bloğu | Sunucu |
 | `testler/` | Docker gerektirmeyen birim ve akış testleri | Geliştirici makinesi |
 
-Ajan ve panel yalnız standart Python kitaplığını kullanır (Python 3.12).
+Ajan yalnız standart Python kitaplığını kullanır (Python 3.12). Panelin tek dış paketi, panel içi asistan için resmî Claude SDK'sıdır (`anthropic==2.8.0`, panel imajında kurulur).
 
 ## Ad alanı
 
@@ -81,11 +81,40 @@ Arayüzde yalnız arka ucu olan işlevler var:
 - deploy, geri alma (kod ya da kod + veri) ve uyumluluk denetimi;
 - staging oluşturma, yenileme ve kaldırma; yedek alma, indirme, geri yükleme ve yedeği staging'de açma;
 - modül listesi ve zip → depo;
-- loglar ve anlık izleme;
+- loglar ve izleme (aşağıda);
 - depo bağlama (GitHub App, deploy key, herkese açık);
-- kullanıcılar, roller ve Odoo başına erişim; denetim kaydı.
+- asistan ve ajan bağlantıları (aşağıda);
+- kullanıcılar, roller ve platform başına erişim; denetim kaydı (hata metni ve arka plan işinin sonucuyla).
 
-Uzun işler (deploy, staging, yedek) pencerede adım adım izlenir. Pencere kapanırsa iş sürer ve bitince bildirim gelir.
+Uzun işler (deploy, staging, yedek) pencerede adım adım izlenir. Pencere kapanırsa iş sürer ve bitince bildirim gelir. Hata bildirimi kapatılana kadar durur; komut ve çıktısı "Teknik ayrıntı" altında görünür.
+
+## İzleme
+
+Ajan dakikada bir her ortamı ölçer (`ajan/izleme.py`) ve `/opt/odoo-panel/izleme/<platform>/<ortam>/<gün>.jsonl` dosyalarına yazar (8 gün; günlük erişilebilirlik özeti 35 gün):
+
+- konteyner: durum, işlemci, bellek; Odoo süreç sayısı;
+- sağlık: sunucudan konteynere `/web/health` ve yanıt süresi;
+- istekler: son ölçümden beri konteyner çıktısındaki istek satırları (istek/dakika, 5xx, p95 yanıt süresi, en yavaş uçlar). Odoo logu dosyaya yazıyorsa bu bölüm boş kalır;
+- veritabanı: bağlantı sayısı, 10 dakikada bir boyut.
+
+İzleme sekmesinde 1 saat / 24 saat / 7 gün grafikleri, en yavaş uçlar, zamanlanmış işler (`ir_cron`, hata sayısıyla) ve 30 günlük erişilebilirlik şeridi gösterilir.
+
+## Asistan ve ajan bağlantıları
+
+Araçlar `panel/arac.py` içinde tanımlıdır; panel içi sohbet ve MCP aynı araçları kullanır. Her çağrıda kullanıcının rolü (yetki.py) ve platform kapsamı denetlenir, çağrı denetim kaydına yazılır.
+
+- **Okuyan araçlar:** platform listesi, ortam durumu, izleme özeti, loglar, modüller, deploy geçmişi, yedekler, iş durumu; rol izin veriyorsa çalışan kod (listeleme, okuma, arama) ve salt okunur SQL.
+- **Yazan araçlar:** yedek alma ve yalnız **staging** dalına kod değişikliği. Production'a yazan araç yoktur.
+- **Salt okunur SQL:** süper kullanıcı olmayan `pnl_okuyucu` rolüyle, `BEGIN TRANSACTION READ ONLY` içinde, 15 sn ve 200 satır sınırıyla. Rolün yetkisi sütun düzeyindedir; adı şifre/anahtar/jeton benzeri sütunlar ve `ir_config_parameter` okunamaz.
+- **Kod:** ortamda çalışan kod; lisanslı (enterprise) klasörler, `odoo.conf`, `.env` ve anahtar dosyaları görünmez.
+
+**Panel içi asistan** (platform sayfasında Asistan sekmesi): Claude API ile çalışır. API anahtarı, model ve effort'u platform yöneticisi *Ajan bağlantıları* ekranından girer (`/veri/asistan.json`, tarayıcıya gitmez). Asistanın önerdiği kod değişikliği kullanıcı onaylamadan gönderilmez.
+
+**MCP** (`https://panel.vekosis.com/mcp`, Streamable HTTP, JSON yanıt):
+
+- Claude Desktop / claude.ai: özel bağlayıcı olarak eklenir; giriş OAuth 2.1 ile (PKCE S256, dinamik istemci kaydı; yalnız claude.ai / claude.com ve yerel yönlendirme adresleri kaydolabilir). Erişim jetonu 1 saat, yenileme jetonu 30 gün ve tek kullanımlık.
+- Codex ve jeton kabul eden istemciler: *Ajan bağlantıları* ekranında üretilen kişisel jeton (`Authorization: Bearer`).
+- Jetonlar `/veri/ajan_baglantilari.json` dosyasında yalnız SHA-256 özetiyle durur; kullanıcı silinince ya da bağlantı kaldırılınca erişim hemen biter.
 
 ## Yerel geliştirme sunucusu
 
@@ -99,7 +128,7 @@ Gerçek ajan ve gerçek panel yerelde açılır. Docker ve PostgreSQL komutları
 - depoya bağlı olmayan bir Odoo;
 - bağlanmış bir test platformu ortamı ve bağlanmayı bekleyen bir ERP konteyneri.
 
-Giriş bilgileri dosyanın başında, `GELISTIRME_KULLANICILARI` içinde. Rolleri platform, yönetici ve kullanıcı; yalnız bu yerel sunucu içindir.
+Giriş bilgileri dosyanın başında, `GELISTIRME_KULLANICILARI` içinde. Rolleri platform, yönetici ve kullanıcı; yalnız bu yerel sunucu içindir. İzleme ekranı için son 7 günün örnek ölçümleri yazılır; asistan gerçek Claude yerine araçları gerçekten çağıran ama hazır metinle yanıt veren taklit istemciyle çalışır.
 
 ## Testler
 

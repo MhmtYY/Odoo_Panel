@@ -9,7 +9,7 @@ from pathlib import Path
 KOK = Path(__file__).resolve().parents[1]
 KAYNAK = KOK / "panel" / "arayuz"
 HEDEF = KOK / "panel" / "static"
-BETIKLER = ["tasarim.js", "temel.js", "ekran_platform.js", "ekran_odoo.js", "basla.js"]
+BETIKLER = ["tasarim.js", "temel.js", "ekran_platform.js", "ekran_odoo.js", "ekran_asistan.js", "basla.js"]
 
 
 def derle():

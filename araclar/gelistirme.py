@@ -200,8 +200,68 @@ def hazirla():
     komut.imajlar["vekosis/erp20:20261103-1"] = "sha256:erp1"
     s.kurulum.bagla({"konteyner": "odoo-musteri", "id": "musteri", "firma": "Müşteri Test Ortamı"}, "gelistirici")
     bekle(s, s.yedek_al("musteri", "production", "gelistirici"))
+    ornek_izleme(s)
     s.isler.senkron = False
     return s
+
+
+class OrnekClaude:
+    """Yerel sunucunun asistanı: önce izleme_ozeti aracını çağırır, sonra sonucu kısa bir metinle özetler."""
+
+    def __init__(self):
+        from types import SimpleNamespace as N
+        self._N = N
+        self.beta = N(messages=N(create=self._olustur))
+
+    def _olustur(self, **istek):
+        import re as re_
+        N = self._N
+        son = istek["messages"][-1]
+        kullanim = N(input_tokens=1200, output_tokens=180, cache_read_input_tokens=0, cache_creation_input_tokens=0)
+        if isinstance(son["content"], str):
+            p = re_.search(r"\[Platform: ([a-z0-9-]+), ortam: (\w+)\]", son["content"])
+            return N(stop_reason="tool_use", usage=kullanim, content=[
+                N(type="text", text="Son 24 saatin ölçümlerine bakıyorum."),
+                N(type="tool_use", id=f"ornek{time.time_ns()}", name="izleme_ozeti",
+                  input={"platform": p[1], "ortam": p[2], "saat": 24})])
+        sonuc = son["content"][0]
+        try:
+            v = json.loads(sonuc["content"])
+            ozet = v.get("olcut_ozeti", {})
+            metin = (f"**Yerel örnek yanıt** (gerçek Claude değil).\n\n"
+                     f"- Erişilebilirlik (30 gün): %{v.get('erisilebilirlik_30g')}\n"
+                     f"- 5xx hata oranı (24 saat): %{v.get('hata_orani_24s')}\n"
+                     f"- Yanıt süresi p95 en çok: {ozet.get('p95', {}).get('en_cok')} ms\n"
+                     f"- En yavaş uç: `{(v.get('yavas') or [{}])[0].get('uc')}`")
+        except (ValueError, TypeError, KeyError):
+            metin = f"Araç hata verdi: {sonuc.get('content')}"
+        return N(stop_reason="end_turn", usage=kullanim, content=[N(type="text", text=metin)])
+
+
+def ornek_izleme(s):
+    """İzleme ekranı boş görünmesin: son 7 günün 10 dakikalık ÖRNEK ölçümleri (yalnız bu yerel sunucu için)."""
+    import random
+    from datetime import datetime
+    r = random.Random(7)
+    simdi = int(time.time())
+    uclar = [("account.move.web_read_group", 1400), ("stock.quant.web_search_read", 900),
+             ("sale.report.web_read_group", 600), ("res.partner.web_search_read", 180), ("/odoo/action-:id", 120)]
+    for odoo_id, ortam, carpan in (("deneme", "production", 1.0), ("deneme", "staging", 0.2),
+                                   ("tekstil", "production", 0.3), ("musteri", "production", 0.7)):
+        v = 0.5
+        for t in range(simdi - 7 * 86400, simdi, 600):
+            v = min(0.95, max(0.05, v + (r.random() - 0.5) * 0.25))
+            gunduz = 1 if 8 <= datetime.fromtimestamp(t).hour < 19 else 0.3
+            istek = round((20 + 80 * v) * gunduz * carpan, 1)
+            kesinti = odoo_id == "musteri" and simdi - 3 * 86400 < t < simdi - 3 * 86400 + 1800
+            s.izleme._yaz(odoo_id, ortam, {
+                "t": t, "durum": "running", "cpu": round((3 + 25 * v) * gunduz * carpan + 1, 1),
+                "bellek": round(700 + 300 * v * carpan), "saglik": 0 if kesinti else 1, "saglik_ms": round(15 + 40 * v),
+                "istek": istek, "hata5xx": 1 if r.random() < 0.04 else 0, "p95": round(250 + 900 * v * gunduz),
+                "ort": round(90 + 200 * v), "surec": 5, "db_baglanti": round(4 + 10 * v * carpan),
+                "db_boyut": 1_350_000_000 if odoo_id == "musteri" else 210_000_000,
+                "uclar": {u: [n, round(n * ms_ * (0.6 + 0.8 * v)), round(ms_ * 3)]
+                          for u, ms_ in uclar for n in [max(1, int(istek * r.random() / 4))]}})
 
 
 def main():
@@ -221,6 +281,10 @@ def main():
     P.AJAN_ANAHTAR = AJAN_ANAHTARI
     P.kullanicilari_yaz({ad: {"sifre": P.sifre_ozeti(sifre), "rol": rol, "kapsam": kapsam, "olusturma": P.simdi()}
                          for ad, sifre, rol, kapsam in GELISTIRME_KULLANICILARI})
+    # Panel asistanı: yerelde gerçek Claude yok; araçları gerçekten çağıran, yanıtı hazır metin olan taklit istemci
+    P.asistan.sdk_var = lambda: True
+    P.asistan.istemci_olustur = lambda anahtar: OrnekClaude()
+    P.asistan.ayar_yaz({"anahtar": "sk-ant-yerel-ornek-0000"})
     panel_http = ThreadingHTTPServer(("127.0.0.1", secenek.port), P.Panel)
     print(f"Panel: http://localhost:{secenek.port}  (ajan 127.0.0.1:{AJAN_PORT}, durum {YEREL})", flush=True)
     panel_http.serve_forever()

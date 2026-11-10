@@ -32,6 +32,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, quote, urlsplit
 
+from . import arac, asistan, mcp
 from .yetki import ROLLER, YETKILER, istek_bul, kapsam_tum, kapsamda, yetkili
 
 AJAN_URL = os.environ.get("AJAN_URL", "http://172.18.0.1:8098").rstrip("/")
@@ -109,13 +110,17 @@ def kullanici_gorunumu(ad, kayit):
             "olusturma": kayit.get("olusturma"), "son_giris": kayit.get("son_giris")}
 
 
-def islem_kaydet(kullanici, ip, olay, odoo=None, kod=None):
+def islem_kaydet(kullanici, ip, olay, odoo=None, kod=None, hata=None, is_no=None):
     VERI.mkdir(parents=True, exist_ok=True)
     satir = {"zaman": simdi(), "ip": ip, "kullanici": kullanici or "-", "olay": olay}
     if odoo:
         satir["odoo"] = odoo
     if kod is not None:
         satir["kod"] = kod
+    if hata:
+        satir["hata"] = str(hata)[:500]
+    if is_no:
+        satir["is"] = is_no
     with open(VERI / "islem.jsonl", "a", encoding="utf-8") as kayit:
         kayit.write(json.dumps(satir, ensure_ascii=False) + "\n")
 
@@ -124,6 +129,28 @@ def oturumlari_kapat(ad):
     with KILIT:
         for anahtar in [a for a, o in OTURUMLAR.items() if o["kullanici"] == ad]:
             OTURUMLAR.pop(anahtar, None)
+
+
+def sifre_ile_dogrula(istek, ad, sifre):
+    """Kullanıcı adı + şifre, hatalı deneme sınırıyla (OAuth onay ekranı). Doğruysa kullanıcı adı, değilse None."""
+    ip = istek._ip()
+    su_an = time.time()
+    with KILIT:
+        denemeler = [z for z in DENEMELER.get(ip, []) if su_an - z < KILIT_SURESI]
+        DENEMELER[ip] = denemeler
+    if len(denemeler) >= DENEME_SINIRI:
+        return None
+    ad = str(ad or "").strip().lower()
+    kayit = kullanicilari_oku().get(ad)
+    if not kayit or not sifre_dogru(str(sifre or ""), kayit.get("sifre", "")):
+        with KILIT:
+            DENEMELER.setdefault(ip, []).append(su_an)
+        islem_kaydet(ad, ip, "HATALI GIRIS")
+        time.sleep(1)
+        return None
+    with KILIT:
+        DENEMELER.pop(ip, None)
+    return ad
 
 
 # ---------------------------------------------------------------- ajan
@@ -148,7 +175,8 @@ def ajana_ilet(yontem, yol, govde=None, kullanici=None, akis=False, basliklar=No
         except ValueError:
             return hata.code, {"hata": f"Ajan hatası ({hata.code})."}
     except (urllib.error.URLError, OSError) as hata:
-        return 502, {"hata": f"Ajana ulaşılamıyor: {hata}"}
+        return 502, {"hata": "Panel sunucudaki ajana ulaşamadı; ajan hizmeti durmuş ya da yeniden başlıyor olabilir.",
+                     "ayrinti": f"{AJAN_URL}/{yol}\n{hata}\nSunucuda: systemctl status odoo-panel-ajan"}
 
 
 # ---------------------------------------------------------------- HTTP
@@ -231,7 +259,22 @@ class Panel(BaseHTTPRequestHandler):
             return self._denetim()
         if yol.startswith("/api/ajan/"):
             return self._ajan("GET", yol[len("/api/ajan/"):])
+        if yol in ("/.well-known/oauth-protected-resource", "/.well-known/oauth-protected-resource/mcp"):
+            return mcp.korunan_kaynak(self)
+        if yol == "/.well-known/oauth-authorization-server":
+            return mcp.yetki_sunucusu(self)
+        if yol == "/oauth/authorize":
+            return mcp.yetkilendir_goster(self)
+        if yol == "/mcp":
+            return self._json(405, {"hata": "Bu MCP sunucusu yalnız POST kabul eder."})
+        if yol == "/api/baglantilar":
+            return self._baglantilar()
+        if yol.startswith("/api/asistan/"):
+            return self._asistan("GET", yol[len("/api/asistan/"):])
         return self._statik(yol)
+
+    def do_DELETE(self):  # noqa: N802
+        self._json(405, {"hata": "Desteklenmiyor."})
 
     def do_HEAD(self):  # noqa: N802
         self.send_response(200 if urlsplit(self.path).path in ("/", "/index.html") else 404)
@@ -252,7 +295,90 @@ class Panel(BaseHTTPRequestHandler):
             return self._kullanici_islem(yol[len("/api/kullanicilar"):].strip("/"))
         if yol.startswith("/api/ajan/"):
             return self._ajan("POST", yol[len("/api/ajan/"):])
+        if yol == "/mcp":
+            return mcp.mcp(self)
+        if yol == "/oauth/register":
+            return mcp.kayit_ol(self)
+        if yol == "/oauth/token":
+            return mcp.jeton_ver(self)
+        if yol == "/oauth/authorize":
+            return mcp.yetkilendir_onay(self)
+        if yol == "/api/baglantilar" or yol.startswith("/api/baglantilar/"):
+            return self._baglanti_islem(yol[len("/api/baglantilar"):].strip("/"))
+        if yol.startswith("/api/asistan/"):
+            return self._asistan("POST", yol[len("/api/asistan/"):])
         self._json(404, {"hata": "Bulunamadı."})
+
+    # -- ajan bağlantıları (MCP jetonları) ve panel asistanı
+    def _baglantilar(self):
+        kullanici = self._yetki()
+        if not kullanici:
+            return
+        platform_yon = kullanici.get("rol") == "platform"
+        ayar = asistan.ayar_gorunumu()
+        self._json(200, {"baglantilar": mcp.baglantilar(kullanici["ad"]), "mcp_adresi": f"{mcp.taban_adres(self)}/mcp",
+                         "araclar": [{"ad": ad, "baslik": arac.ARACLAR[ad][0], "yazar": arac.ARACLAR[ad][4]}
+                                     for ad in arac.kullanilabilir(kullanici)],
+                         "asistan": ayar if platform_yon else {k: ayar[k] for k in ("anahtar_var", "model", "sdk")},
+                         "asistan_ayar_yetkisi": platform_yon})
+
+    def _baglanti_islem(self, alt):
+        kullanici = self._yetki(post=True)
+        if not kullanici:
+            return
+        try:
+            govde = self._govde()
+        except ValueError:
+            return self._json(400, {"hata": "Geçersiz istek."})
+        if alt == "":
+            ad = re.sub(r"[\x00-\x1f<>]", "", str(govde.get("ad") or "")).strip()[:60]
+            if not ad:
+                return self._json(400, {"hata": "Jetona bir ad verin (ör. Codex dizüstü)."})
+            gun = govde.get("sure_gun")
+            sure = int(gun) * 86400 if isinstance(gun, int) and 1 <= gun <= 365 else None
+            jeton = mcp.jeton_uret(kullanici["ad"], "kisisel", ad=ad, sure=sure)
+            islem_kaydet(kullanici["ad"], self._ip(), f"JETON URETTI {ad}")
+            return self._json(200, {"jeton": jeton, "baglantilar": mcp.baglantilar(kullanici["ad"])})
+        eslesme = re.fullmatch(r"([a-z0-9]{12})/sil", alt)
+        if eslesme:
+            sayi_ = mcp.baglanti_kaldir(kullanici["ad"], eslesme[1])
+            if not sayi_:
+                return self._json(404, {"hata": "Bağlantı bulunamadı."})
+            islem_kaydet(kullanici["ad"], self._ip(), f"JETON KALDIRDI {eslesme[1]}")
+            return self._json(200, {"baglantilar": mcp.baglantilar(kullanici["ad"])})
+        if alt == "asistan-ayar":
+            if kullanici.get("rol") != "platform":
+                return self._json(403, {"hata": "Asistan ayarını yalnız platform yöneticisi değiştirir."})
+            try:
+                sonuc = asistan.ayar_yaz(govde)
+            except ValueError as hata:
+                return self._json(400, {"hata": str(hata)})
+            islem_kaydet(kullanici["ad"], self._ip(), "ASISTAN AYAR")
+            return self._json(200, sonuc)
+        self._json(404, {"hata": "Bilinmeyen istek."})
+
+    def _asistan(self, yontem, alt):
+        eslesme = re.fullmatch(r"([a-z][a-z0-9-]{1,20}[a-z0-9])/(production|staging)(?:/(mesaj|yeni|onay))?", alt.strip("/"))
+        if not eslesme or (yontem == "GET") != (eslesme[3] is None):
+            return self._json(404, {"hata": "Bilinmeyen istek."})
+        kullanici = self._yetki(post=yontem == "POST", yetki="asistan")
+        if not kullanici:
+            return
+        platform, ortam, islem = eslesme[1], eslesme[2], eslesme[3]
+        if not kapsamda(kullanici, platform):
+            return self._json(404, {"hata": "Bu platform bulunamadı."})
+        if yontem == "GET":
+            return self._json(200, asistan.gorunum(kullanici["ad"], platform, ortam))
+        try:
+            govde = self._govde()
+            if islem == "mesaj":
+                return self._json(200, asistan.gonder(kullanici, platform, ortam, govde.get("metin"), self._ip()))
+            if islem == "yeni":
+                return self._json(200, asistan.sifirla(kullanici["ad"], platform, ortam))
+            sonuc = asistan.oneri_karar(kullanici, platform, ortam, bool(govde.get("evet")), self._ip())
+            return self._json(202 if sonuc.get("id") else 200, sonuc)
+        except ValueError as hata:
+            return self._json(400, {"hata": str(hata)})
 
     # -- statik
     def _statik(self, yol):
@@ -358,13 +484,13 @@ class Panel(BaseHTTPRequestHandler):
     def _kapsam_dogrula(self, yapan, kapsam):
         if kapsam == "*":
             if not kapsam_tum(yapan):
-                raise ValueError("Bütün Odoo'ları kapsayan kullanıcıyı yalnız bütün kapsamlı kullanıcı açar.")
+                raise ValueError("Bütün platformları kapsayan kullanıcıyı yalnız bütün kapsamlı kullanıcı açar.")
             return "*"
         if not isinstance(kapsam, list) or not all(isinstance(k, str) and re.fullmatch(r"[a-z][a-z0-9-]{1,20}[a-z0-9]", k)
                                                    for k in kapsam):
             raise ValueError("Kapsam Odoo adlarının listesi ya da * olmalı.")
         if not kapsam_tum(yapan) and not set(kapsam) <= set(yapan.get("kapsam", [])):
-            raise ValueError("Kendi kapsamınızda olmayan Odoo'yu veremezsiniz.")
+            raise ValueError("Kendi kapsamınızda olmayan platformu veremezsiniz.")
         return sorted(set(kapsam))
 
     def _kullanici_islem(self, alt_yol):
@@ -420,7 +546,7 @@ class Panel(BaseHTTPRequestHandler):
                         olay, yanit = f"ROL DEGISTIRDI {ad} -> {rol}", kullanici_gorunumu(ad, hedef)
                     elif islem == "kapsam":
                         if hedef.get("rol") == "platform":
-                            raise ValueError("Platform yöneticisinin kapsamı her zaman bütün Odoo'lardır.")
+                            raise ValueError("Platform yöneticisinin kapsamı her zaman bütün platformlardır.")
                         hedef["kapsam"] = self._kapsam_dogrula(yapan, govde.get("kapsam"))
                         olay, yanit = f"KAPSAM DEGISTIRDI {ad}", kullanici_gorunumu(ad, hedef)
                     elif islem == "sifre":
@@ -439,6 +565,8 @@ class Panel(BaseHTTPRequestHandler):
             return self._json(400, {"hata": str(hata)})
         if parca:
             oturumlari_kapat(parca[0])
+            if olay.startswith("KULLANICI SILDI"):
+                mcp.kullanici_jetonlarini_sil(parca[0])  # ajan bağlantıları da kapanır
         islem_kaydet(yapan["ad"], self._ip(), olay)
         self._json(200, yanit)
 
@@ -459,6 +587,17 @@ class Panel(BaseHTTPRequestHandler):
                 sonuc.append(kayit)
             if len(sonuc) >= 300:
                 break
+        # Arka planda süren işlerin (202) sonucu: tamamlandı mı, hata verdi mi
+        idler = [k["is"] for k in sonuc if k.get("is")]
+        if idler:
+            kod, veri = ajana_ilet("GET", "isler?idler=" + ",".join(idler), kullanici=kullanici["ad"])
+            isler = {i.get("id"): i for i in (veri.get("isler", []) if kod == 200 else [])}
+            for k in sonuc:
+                i = isler.get(k.get("is"))
+                if i:
+                    k["is_durum"] = i.get("durum")
+                    if i.get("hata"):
+                        k["is_hata"] = str(i["hata"])[:500]
         self._json(200, {"kayitlar": sonuc})
 
     # -- ajan
@@ -473,7 +612,7 @@ class Panel(BaseHTTPRequestHandler):
             return
         odoo = eslesme.group(1) if kapsam == "odoo" else None
         if kapsam == "odoo" and not kapsamda(kullanici, odoo):
-            return self._json(404, {"hata": "Bu Odoo bulunamadı."})
+            return self._json(404, {"hata": "Bu platform bulunamadı."})
         if kapsam == "tum" and not kapsam_tum(kullanici):
             return self._json(403, {"hata": "Bu işlem bütün sunucuyu ilgilendirir; yalnız bütün kapsamlı kullanıcılar."})
         sorgu = parse_qs(urlsplit(self.path).query)
@@ -481,12 +620,15 @@ class Panel(BaseHTTPRequestHandler):
         if yol == "isler":
             istenen = (sorgu.get("odoo") or [""])[0]
             if not kapsam_tum(kullanici) and not (istenen and kapsamda(kullanici, istenen)):
-                return self._json(400, {"hata": "İş listesi için Odoo seçin."})
+                return self._json(400, {"hata": "İş listesi için platform seçin."})
             if istenen:
                 ajan_yolu = f"isler?odoo={quote(istenen)}"
         satir = (sorgu.get("satir") or [""])[0]
         if yol.endswith("/loglar") and satir.isdigit():
             ajan_yolu = f"{yol}?satir={satir}"
+        saat = (sorgu.get("saat") or [""])[0]
+        if yol.endswith("/izleme") and saat.isdigit():
+            ajan_yolu = f"{yol}?saat={saat}"
         try:
             if yol.endswith("/zip") and yontem == "POST":
                 govde = self._ham_govde(SINIR_ZIP)
@@ -504,8 +646,11 @@ class Panel(BaseHTTPRequestHandler):
         except ValueError:
             return self._json(400, {"hata": "Geçersiz istek."})
         if yontem == "POST":
+            veri = sonuc if isinstance(sonuc, dict) else {}
             islem_kaydet(kullanici["ad"], self._ip(), f"POST {yol}", odoo or (govde or {}).get("id")
-                         if isinstance(govde, dict) else odoo, kod)
+                         if isinstance(govde, dict) else odoo, kod,
+                         hata=veri.get("hata") if kod >= 400 else None,
+                         is_no=veri.get("id") if kod == 202 else None)
         sonuc = self._suz(kullanici, yontem, yol, kod, sonuc, govde)
         if sonuc is None:
             return self._json(404, {"hata": "Bulunamadı."})

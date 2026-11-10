@@ -226,6 +226,31 @@ class Depo:
         finally:
             dizin_dosyasi.unlink(missing_ok=True)
 
+    def dosyalari_degistir(self, taban, dosyalar, mesaj, yazar=YAZAR):
+        """taban commit'in ağacında tek tek dosya yazar ({yol: metin}) ya da siler ({yol: None}); yeni commit'i
+        (değişiklik yoksa None) döner. Çalışma ağacı açılmaz."""
+        self.ayar.gecici.mkdir(parents=True, exist_ok=True)
+        tanimlayici, ad = tempfile.mkstemp(prefix=".index-", dir=self.ayar.gecici)
+        os.close(tanimlayici)
+        dizin_dosyasi = Path(ad)
+        dizin_dosyasi.unlink()
+        ortam = {"GIT_INDEX_FILE": str(dizin_dosyasi), "GIT_AUTHOR_NAME": yazar[0], "GIT_AUTHOR_EMAIL": yazar[1],
+                 "GIT_COMMITTER_NAME": yazar[0], "GIT_COMMITTER_EMAIL": yazar[1]}
+        try:
+            self._git("read-tree", taban, ortam=ortam)
+            for yol, metin in dosyalar.items():
+                if metin is None:
+                    self._git("update-index", "--force-remove", "--", yol, ortam=ortam)
+                    continue
+                nesne = self._git("hash-object", "-w", "--stdin", girdi=metin.encode("utf-8"), ortam=ortam).cikti.strip()
+                self._git("update-index", "--add", "--cacheinfo", f"100644,{nesne},{yol}", ortam=ortam)
+            agac = self._git("write-tree", ortam=ortam).cikti.strip()
+            if agac == self._git("rev-parse", f"{taban}^{{tree}}").cikti.strip():
+                return None
+            return self._git("commit-tree", agac, "-p", taban, "-m", mesaj, ortam=ortam).cikti.strip()
+        finally:
+            dizin_dosyasi.unlink(missing_ok=True)
+
     def gonder(self, sha, dal, eski=None):
         """sha'yı uzak dala gönderir. eski verilirse yalnız uzak dal hâlâ oradaysa (yarış koruması)."""
         dal = dal_denetle(dal)

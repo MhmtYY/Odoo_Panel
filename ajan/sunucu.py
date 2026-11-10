@@ -8,6 +8,7 @@ import json
 import re
 import threading
 import time
+import traceback
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, unquote, urlsplit
@@ -15,6 +16,7 @@ from urllib.parse import parse_qs, unquote, urlsplit
 from . import SURUM, kayit
 from .depo import Depo
 from .hata import Hata
+from .komut import KomutHatasi
 
 AD = r"[a-z][a-z0-9-]{1,20}[a-z0-9]"
 ORT = r"production|staging"
@@ -60,6 +62,7 @@ def rotalar(s):
         ("GET", rf"odoolar/({AD})/zip-pr", lambda m, g, i: (200, {"pr": _zip_pr(s, m[1])})),
         # ortam
         ("GET", rf"odoolar/({AD})/({ORT})/durum", lambda m, g, i: (200, _durum(s, m[1], m[2]))),
+        ("GET", rf"odoolar/({AD})/({ORT})/izleme", lambda m, g, i: (200, s.izleme.ozet(m[1], m[2], i.sorgu.get("saat", 24)))),
         ("POST", rf"odoolar/({AD})/({ORT})/(durdur|baslat)",
          lambda m, g, i: is_(s.durdur_baslat(m[1], m[2], m[3], k(i)))),
         ("GET", rf"odoolar/({AD})/({ORT})/deploylar", lambda m, g, i: (200, {"deploylar": s.deploylar.kayitlar(m[1], m[2])})),
@@ -83,11 +86,26 @@ def rotalar(s):
         ("POST", rf"odoolar/({AD})/staging/sil", lambda m, g, i: is_(_staging_sil(s, m[1], g, k(i)))),
         ("POST", rf"odoolar/({AD})/yedek-staging",
          lambda m, g, i: is_(s.staging.yedekten_ac(m[1], str(g.get("dosya") or ""), k(i)))),
+        # asistan ve bağlı ajanlar (yalnız panelin araç katmanı çağırır)
+        ("GET", rf"odoolar/({AD})/({ORT})/kod", lambda m, g, i: (200, s.asistan.kod_listele(m[1], m[2], i.sorgu.get("yol", "")))),
+        ("GET", rf"odoolar/({AD})/({ORT})/kod/oku", lambda m, g, i: (200, s.asistan.kod_oku(
+            m[1], m[2], i.sorgu.get("yol", ""), _sayi(i.sorgu.get("bas")), _sayi(i.sorgu.get("son"))))),
+        ("GET", rf"odoolar/({AD})/({ORT})/kod/ara", lambda m, g, i: (200, s.asistan.kod_ara(
+            m[1], m[2], i.sorgu.get("desen", ""), i.sorgu.get("yol", "")))),
+        ("POST", rf"odoolar/({AD})/({ORT})/sql", lambda m, g, i: (200, s.asistan.sql_oku(m[1], m[2], g.get("sorgu")))),
+        ("POST", rf"odoolar/({AD})/staging/asistan-commit", lambda m, g, i: is_(s.asistan.staging_commit(
+            m[1], g.get("dosyalar"), g.get("mesaj"), k(i), s.isler))),
         # işler
-        ("GET", r"isler", lambda m, g, i: (200, {"isler": s.isler.liste(odoo=i.sorgu.get("odoo"))})),
+        ("GET", r"isler", lambda m, g, i: (200, {"isler": s.isler.liste(
+            odoo=i.sorgu.get("odoo"), idler=[x for x in i.sorgu.get("idler", "").split(",") if x] or None)})),
         ("GET", r"isler/([0-9a-f]{12})", lambda m, g, i: (200, s.isler.oku(m[1]))),
         ("POST", r"gece-yedegi", lambda m, g, i: (202, {"isler": s.gece_yedegi()})),
     ]
+
+
+def _sayi(deger):
+    deger = str(deger or "")
+    return int(deger) if deger.isdigit() else None
 
 
 def _satir(istek):
@@ -150,6 +168,7 @@ class Istek(BaseHTTPRequestHandler):
     anahtar = ""
     rota_listesi = []
     _ip = {"zaman": 0.0, "ipler": set()}
+    _yerel = {"zaman": 0.0, "ipler": set()}
     _ip_kilit = threading.Lock()
     server_version = f"OdooPanelAjan/{SURUM}"
     sys_version = ""
@@ -165,12 +184,26 @@ class Istek(BaseHTTPRequestHandler):
                 self._ip["zaman"] = time.time()
             return self._ip["ipler"]
 
+    def _sunucu_ipleri(self):
+        """Sunucunun kendi IPv4 adresleri.
+
+        Sunucudan ajana giden istek (gece yedeği zamanlayıcısı, "python3 -m ajan saglik") Docker'ın NAT kuralından
+        geçer (POSTROUTING -s <ağ> ! -o <köprü> MASQUERADE) ve ajana sunucunun genel adresiyle gelir. Dışarıdan
+        bu adreslerle gelen paketi çekirdek zaten atar (martian source); anahtar denetimi ayrıca yapılır."""
+        with self._ip_kilit:
+            if time.time() - self._yerel["zaman"] > 30:
+                sonuc = self.servis.komut.calistir(["ip", "-o", "-4", "addr", "show"], kontrol=False, zaman_asimi=15)
+                self._yerel["ipler"] = (set(re.findall(r"\binet (\d+\.\d+\.\d+\.\d+)/", sonuc.cikti))
+                                        if sonuc.tamam else set())
+                self._yerel["zaman"] = time.time()
+            return self._yerel["ipler"]
+
     def _izinli(self):
         if self.servis.ayar.kuru:
             return True
         ip = self.client_address[0]
-        # sunucunun kendisi (gece yedeği zamanlayıcısı, "python3 -m ajan saglik"); konteynerler kendi IP'leriyle gelir
-        if ip in ("127.0.0.1", self.servis.ayar.adres):
+        # sunucunun kendisi; konteynerler kendi IP'leriyle gelir, yalnız panel konteyneri kabul edilir
+        if ip in ("127.0.0.1", self.servis.ayar.adres) or ip in self._sunucu_ipleri():
             return True
         return ip in self._panel_ipleri() or ip in self._panel_ipleri(yenile=True)
 
@@ -237,13 +270,17 @@ class Istek(BaseHTTPRequestHandler):
                         return self._dosya(veri)
                     return self._yanit(kod, veri)
             raise Hata(404, "Bilinmeyen istek.")
-        except Hata as hata:
-            self._yanit(hata.kod, {"hata": hata.mesaj})
+        except (Hata, KomutHatasi) as hata:
+            veri = {"hata": hata.mesaj}
+            if getattr(hata, "ayrinti", None):
+                veri["ayrinti"] = hata.ayrinti
+            self._yanit(hata.kod, veri)
         except (ValueError, json.JSONDecodeError):
             self._yanit(400, {"hata": "Geçersiz istek."})
         except Exception as hata:  # noqa: BLE001 - panele hata olarak döner
             self.log_message("BEKLENMEYEN HATA %s", hata)
-            self._yanit(500, {"hata": f"Ajan hatası: {hata}"})
+            self._yanit(500, {"hata": f"Ajanda beklenmeyen bir hata oluştu: {type(hata).__name__}: {hata}",
+                              "ayrinti": traceback.format_exc()[-4000:]})
 
     def do_GET(self):  # noqa: N802
         self._isle("GET")
@@ -260,6 +297,8 @@ def calistir(servis, anahtar):
     Istek.anahtar = anahtar
     Istek.rota_listesi = rotalar(servis)
     sunucu = ThreadingHTTPServer((servis.ayar.adres, servis.ayar.port), Istek)
+    if not servis.ayar.kuru:
+        servis.izleme.baslat()  # dakikada bir ölçüm (izleme.py)
     print(f"{kayit.simdi()} Odoo Yönetim Paneli ajanı {SURUM} dinliyor: {servis.ayar.adres}:{servis.ayar.port} "
           f"(kuru={servis.ayar.kuru})", flush=True)
     sunucu.serve_forever()

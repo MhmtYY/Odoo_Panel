@@ -20,7 +20,7 @@ PY_SINAMA = re.compile(r"^[A-Za-z_][A-Za-z0-9_.]{0,80}$")
 
 IMAJ_TARAMA = r"""
 import json, os, sys
-import odoo
+import odoo.addons  # Odoo 19+: odoo ve odoo.addons ad alanı paketi; "import odoo" addons'u yüklemez
 from odoo import release
 yollar = [p for p in odoo.addons.__path__]
 ek = [p for p in ("/mnt/vekosis-addons", "/mnt/enterprise-addons", "/mnt/extra-addons", "/mnt/addons")

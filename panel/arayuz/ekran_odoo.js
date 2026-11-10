@@ -16,7 +16,7 @@ async function odooEkrani(R) {
     const od = await ajan.al(`odoolar/${encodeURIComponent(R.odoo)}`);
     const ortamAd = R.ortam === "staging" && od.ortamlar.staging ? "staging" : "production";
     const ort = od.ortamlar[ortamAd];
-    if (!ort) throw new ApiHata(404, "Bu Odoo'nun production ortamı yok.");
+    if (!ort) throw new ApiHata(404, "Bu platformun production ortamı yok.");
     const ondeIstek = od.depo && od.ortamlar.staging && od.ortamlar.staging.commit
         ? ajan.al(`odoolar/${od.id}/onde`).then((v) => v.commitler).catch(() => []) : Promise.resolve([]);
     const [[icerik, sonra], onde] = await Promise.all([ODOO_SEKME[R.sekme](od, ortamAd, ort), ondeIstek]);
@@ -27,7 +27,7 @@ function odooKabuk(od, ortamAd, sekme, icerik, onde) {
     const ort = od.ortamlar[ortamAd];
     const sekmeler = ODOO_SEKMELER.filter(sekmeAcik);
     return `<div class="ort-${ortamAd}">
-        ${tekOdoo() ? `<p class="ust-etiket">Odoo kurulumu</p>` : `<div class="kirinti"><a href="#/odoolar">Odoo'lar</a> / ${esc(od.firma)}</div>`}
+        ${tekOdoo() ? `<p class="ust-etiket">Platform</p>` : `<div class="kirinti"><a href="#/odoolar">Platformlar</a> / ${esc(od.firma)}</div>`}
         <div class="odoo-baslik">
             <div><h1>${esc(od.firma)}</h1>
                 <div class="odoo-alt"><span class="rozet surum">${esc(SERI_ADI(od.seri))}</span>${ort.mesgul ? `<span class="rozet islem">${ikon("don", 11, 'class="donen"')}İşlem sürüyor</span>` : rozetDurum(ort.durum)}
@@ -41,7 +41,7 @@ function odooKabuk(od, ortamAd, sekme, icerik, onde) {
         </div>
         ${hatCiz(od, ortamAd, onde)}
         ${ortamNotu(od, ortamAd, ort)}
-        <nav class="sekmeler" aria-label="Bu Odoo">
+        <nav class="sekmeler" aria-label="Bu platform">
             ${sekmeler.map((s) => `<a class="sekme ${sekme === s.ad ? "etkin" : ""}" href="${odooRota(od.id, ortamAd, s.ad)}">${ikon(s.ikon, 15)}${esc(s.baslik)}</a>`).join("")}
         </nav>
         <div id="sekme-icerik">${icerik}</div>
@@ -115,11 +115,11 @@ EYLEM["production-al"] = (el) => onayPenceresi({
 ODOO_SEKME.deploylar = async (od, ortamAd, ort) => {
     if (od.tur === "bagli" && ortamAd === "production") {
         return [bosDurum("Bağlanan kurulumda deploy yok",
-            "Bu Odoo panelin dışında kurulmuş; kodu kendi yöntemiyle güncellenir. Panel izler, yedek alır ve staging açar.",
+            "Bu platform panelin dışında kurulmuş; kodu kendi yöntemiyle güncellenir. Panel izler, yedek alır ve staging açar.",
             `<a class="btn" href="${odooRota(od.id, ortamAd, "izleme")}">İzleme</a><a class="btn" href="${odooRota(od.id, ortamAd, "yedekler")}">Yedekler</a>`, "ara")];
     }
     if (!od.depo) {
-        return [bosDurum("Bu Odoo henüz bir kod deposuna bağlı değil",
+        return [bosDurum("Bu platform henüz bir kod deposuna bağlı değil",
             od.tur === "panel" ? "Depo bağlanınca her push bir deploy olur, geçmiş burada görünür ve eski sürüme dönülebilir." : "Staging'in kodu production'dan kopyalandı.",
             od.tur === "panel" && yetkili("github") ? `<a class="btn birincil" href="${odooRota(od.id, "production", "ayarlar")}">${ikon("github", 15)}Depoyu bağla</a>` : "", "github")];
     }
@@ -306,16 +306,99 @@ EYLEM.uyumluluk = (el) => isBaslat(() => ajan.gonder(`odoolar/${el.dataset.odoo}
 });
 
 /* ---------- İzleme ---------- */
+const IZLEME = { saat: "24" };
+const IZLEME_ARALIK = { 1: "1 saat", 24: "24 saat", 168: "7 gün" };
+const OLCUTLER = {
+    cpu: { ad: "İşlemci", birim: "%", en: null },
+    bellek: { ad: "Bellek", birim: "MB" },
+    istek: { ad: "İstek / dakika", birim: "" },
+    p95: { ad: "Yanıt süresi (p95)", birim: "ms" },
+};
+const CRON_ARALIK = { minutes: "dakika", hours: "saat", days: "gün", weeks: "hafta", months: "ay" };
+function gostergeKart(ad, deger, alt, ek = "") {
+    return `<div class="kart gosterge"><div class="gosterge-ust"><span class="gosterge-ad">${esc(ad)}</span>${ek}</div>
+        <div class="gosterge-deger">${deger}</div><div class="gosterge-alt">${alt}</div></div>`;
+}
+function grafikZaman(t, saatAralik) {
+    const g = new Date(t * 1000);
+    return saatAralik === "168" ? `${g.getDate()} ${AYLAR[g.getMonth()].slice(0, 3)}` : `${iki(g.getHours())}:${iki(g.getMinutes())}`;
+}
+function grafikCiz(kap, seri, ad, saatAralik, deploylar) {
+    const G = kap.clientWidth, Y = kap.clientHeight;
+    if (!G || !Y) return;
+    const m = OLCUTLER[ad];
+    if (seri.length < 2) {
+        kap.innerHTML = `<div class="grafik-bos soluk kucuk-yazi">${seri.length ? "Grafik için en az iki ölçüm gerekir." : "Bu aralıkta ölçüm yok."}</div>`;
+        return;
+    }
+    const sol = 44, sag = 8, ust = 8, alt = 20;
+    const enYuksek = Math.max(...seri.map((n) => n[1]), 1);
+    const kuvvet = Math.pow(10, Math.floor(Math.log10(enYuksek)));
+    const tepe = ad === "cpu" ? Math.max(10, Math.ceil(enYuksek / 10) * 10) : Math.ceil((enYuksek * 1.1) / (kuvvet / 2)) * (kuvvet / 2);
+    const bas = seri[0][0], bit = seri[seri.length - 1][0];
+    const X = (t) => sol + ((t - bas) / Math.max(1, bit - bas)) * (G - sol - sag);
+    const Yd = (v) => ust + (1 - v / tepe) * (Y - ust - alt);
+    const yol = seri.map((n, i) => `${i ? "L" : "M"}${X(n[0]).toFixed(1)} ${Yd(n[1]).toFixed(1)}`).join("");
+    const alan = `${yol}L${X(bit).toFixed(1)} ${Yd(0)}L${X(bas).toFixed(1)} ${Yd(0)}Z`;
+    const izgara = [0, 0.5, 1].map((o) => `<line x1="${sol}" x2="${G - sag}" y1="${Yd(tepe * o)}" y2="${Yd(tepe * o)}" stroke="var(--cizgi)"/>
+        <text x="${sol - 6}" y="${Yd(tepe * o) + 3.5}" text-anchor="end" font-size="10.5" fill="var(--silik)">${sayi(tepe * o, 0)}</text>`).join("");
+    const etiketler = [bas, (bas + bit) / 2, bit].map((t, s) => `<text x="${X(t)}" y="${Y - 5}" font-size="10.5" fill="var(--silik)" text-anchor="${["start", "middle", "end"][s]}">${grafikZaman(t, saatAralik)}</text>`).join("");
+    const isaretler = deploylar.filter((d) => d.t >= bas && d.t <= bit).map((d) =>
+        `<line x1="${X(d.t).toFixed(1)}" x2="${X(d.t).toFixed(1)}" y1="${ust}" y2="${Yd(0)}" stroke="var(--mor-metin)" stroke-width="1" opacity=".55"><title>Deploy: ${esc(kisa(d.commit || ""))}</title></line>`).join("");
+    kap.innerHTML = `<svg viewBox="0 0 ${G} ${Y}" aria-hidden="true">${izgara}${etiketler}${isaretler}
+        <path d="${alan}" fill="var(--tur)" opacity=".1"/>
+        <path d="${yol}" fill="none" stroke="var(--tur)" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
+        <line class="artici" x1="0" x2="0" y1="${ust}" y2="${Yd(0)}" stroke="var(--silik)" style="display:none"/>
+        <circle class="nokta-i" r="4" fill="var(--tur)" stroke="var(--kart)" stroke-width="2" style="display:none"/>
+    </svg><div class="grafik-ipucu" style="display:none"><strong></strong><span></span></div>`;
+    const artici = $(".artici", kap), nokta = $(".nokta-i", kap), ipucu = $(".grafik-ipucu", kap);
+    const goster = (i) => {
+        const [t, v] = seri[i];
+        artici.setAttribute("x1", X(t)); artici.setAttribute("x2", X(t)); artici.style.display = "";
+        nokta.setAttribute("cx", X(t)); nokta.setAttribute("cy", Yd(v)); nokta.style.display = "";
+        ipucu.style.display = "";
+        ipucu.querySelector("strong").textContent = `${sayi(v, ad === "cpu" ? 1 : 0)}${m.birim ? " " + m.birim : ""}`;
+        const g = new Date(t * 1000);
+        ipucu.querySelector("span").textContent = `${saatAralik === "168" ? `${g.getDate()} ${AYLAR[g.getMonth()].slice(0, 3)} ` : ""}${iki(g.getHours())}:${iki(g.getMinutes())}`;
+        const gen = ipucu.offsetWidth;
+        ipucu.style.left = `${Math.max(0, Math.min(G - gen, X(t) + 10 + gen > G ? X(t) - gen - 10 : X(t) + 10))}px`;
+    };
+    const gizle = () => { artici.style.display = "none"; nokta.style.display = "none"; ipucu.style.display = "none"; };
+    const enYakin = (x) => { let en = 0; seri.forEach((n, i) => { if (Math.abs(X(n[0]) - x) < Math.abs(X(seri[en][0]) - x)) en = i; }); return en; };
+    kap.onpointermove = (e) => { const r = kap.getBoundingClientRect(); goster(enYakin(e.clientX - r.left)); };
+    kap.onpointerleave = gizle;
+    let oda = seri.length - 1;
+    kap.onfocus = () => goster(oda);
+    kap.onblur = gizle;
+    kap.onkeydown = (e) => {
+        if (e.key === "ArrowLeft" || e.key === "ArrowRight") { e.preventDefault(); oda = Math.max(0, Math.min(seri.length - 1, oda + (e.key === "ArrowLeft" ? -1 : 1))); goster(oda); }
+    };
+}
+function erisimSinif(oran) { return oran == null ? "yok" : oran < 99 ? "kirmizi" : oran < 99.9 ? "uyari" : ""; }
+function cronDurum(c) {
+    if (!c.etkin) return `<span class="rozet">Kapalı</span>`;
+    if (c.hata_sayisi > 0) return `<span class="rozet hata">Üst üste ${esc(c.hata_sayisi)} kez hata</span>`;
+    return `<span class="rozet basarili">Çalışıyor</span>`;
+}
+const utcIso = (s) => (s ? (/[zZ]|[+-]\d\d:?\d\d$/.test(s) ? s : s + "Z") : null);  // veritabanı UTC tutar
 ODOO_SEKME.izleme = async (od, ortamAd) => {
-    const d = await ajan.al(`odoolar/${od.id}/${ortamAd}/durum`);
+    const [d, v] = await Promise.all([
+        ajan.al(`odoolar/${od.id}/${ortamAd}/durum`),
+        ajan.al(`odoolar/${od.id}/${ortamAd}/izleme?saat=${IZLEME.saat}`).catch((e) => ({ hata: e.message })),
+    ]);
     const k = d.kaynak || {};
     const sinir = panelOrtami(d) ? 2048 : null;
     const oran = sinir && k.bellek_mb ? (k.bellek_mb / sinir) * 100 : null;
     const islemIzni = yetkili("durdur") && (panelOrtami(d) || od.islemler_acik);
     const calisiyor = d.durum === "running";
+    const son = (v && v.son) || {};
+    const olcumYok = !v || v.hata || !v.son;
     return [`
-    <div class="filtre-satir"><span class="soluk kucuk-yazi">Anlık değerler, konteynerin kendisinden.</span><span class="bosluk"></span>
+    <div class="filtre-satir">
+        <div class="parca-secim" role="group" aria-label="Zaman aralığı">${Object.entries(IZLEME_ARALIK).map(([s, ad]) => `<button class="${IZLEME.saat === s ? "etkin" : ""}" data-eylem="izleme-aralik" data-saat="${s}">${esc(ad)}</button>`).join("")}</div>
+        <span class="soluk kucuk-yazi">Dakikada bir ölçülür. İnce dikey çizgiler deploy anlarıdır.</span><span class="bosluk"></span>
         <button class="btn kucuk" data-eylem="yeniden-ciz">${ikon("yenile", 13)}Yenile</button></div>
+    ${v && v.hata ? uyariKutu("kirmizi", `Ölçüm geçmişi okunamadı: ${esc(v.hata)}`) : olcumYok ? uyariKutu("mavi", "Bu ortam için henüz ölçüm yok. Ajan dakikada bir ölçer; ilk değerler birkaç dakika içinde görünür.") : ""}
     <div class="gosterge-izgara">
         <div class="kart gosterge"><div class="gosterge-ust"><span class="gosterge-ad">Durum</span></div><div class="gosterge-deger" style="font-size:1rem">${rozetDurum(d.durum)}</div>
             <div class="gosterge-alt"><code>${esc(d.konteyner)}</code></div></div>
@@ -327,7 +410,35 @@ ODOO_SEKME.izleme = async (od, ortamAd) => {
         <div class="kart gosterge"><div class="gosterge-ust"><span class="gosterge-ad">Kod</span></div>
             <div class="gosterge-deger" style="font-size:1rem">${d.commit ? `<span class="hash">${esc(kisa(d.commit))}</span>` : "-"}</div>
             <div class="gosterge-alt tasma-kes" title="${esc(d.imaj)}">${esc(d.imaj || "")}</div></div>
+        ${gostergeKart("Erişilebilirlik", v && v.erisilebilirlik_30g != null ? `%${esc(sayi(v.erisilebilirlik_30g, 2))}` : "-", "Son 30 gün, dakikalık sağlık denetimi")}
+        ${gostergeKart("Hata oranı", v && v.hata_orani_24s != null ? `%${esc(sayi(v.hata_orani_24s, 2))}` : "-",
+            v && v.istek_kaydi ? `Son 24 saat: ${esc(sayi(v.hata_24s || 0, 0))} istek sunucu hatasıyla (5xx) döndü` : "İstek kaydı yok", v && v.hata_orani_24s >= 1 ? `<span class="rozet hata">Yüksek</span>` : "")}
+        ${gostergeKart("Veritabanı", son.db_baglanti != null ? `${esc(son.db_baglanti)} <small class="soluk" style="font-size:.8rem;font-weight:400">bağlantı</small>` : "-", v && v.db_boyut ? `Boyut ${esc(boyutBayt(v.db_boyut))}` : "Boyut ölçülmedi")}
+        ${gostergeKart("Odoo süreçleri", son.surec != null ? esc(son.surec) : "-", son.saglik_ms != null ? `Sağlık yanıtı ${esc(sayi(son.saglik_ms, 0))} ms${son.saglik ? "" : " (başarısız)"}` : "Ana süreç, worker ve cron")}
     </div>
+    ${v && !v.hata ? `<div class="grafik-izgara">${Object.keys(OLCUTLER).map((ad) => `<div class="kart grafik-kart">
+        <div class="grafik-ust"><span class="grafik-ad">${esc(OLCUTLER[ad].ad)}</span><span class="grafik-deger" id="deger-${ad}"></span></div>
+        <div class="grafik" id="grafik-${ad}" tabindex="0" role="img" aria-label="${esc(OLCUTLER[ad].ad)} grafiği"></div></div>`).join("")}</div>
+    ${!v.istek_kaydi && v.son ? `<p class="soluk kucuk-yazi" style="margin:-.25rem 0 .75rem">İstek ve yanıt süresi, Odoo'nun konteyner çıktısına yazdığı istek satırlarından hesaplanır. Bu kurulumda bu satırlar yok (log dosyaya yazılıyor ya da log seviyesi düşük).</p>` : ""}
+    <details style="margin-bottom:1rem"><summary class="soluk kucuk-yazi" style="cursor:pointer">Değerleri tablo olarak göster</summary>
+        <div class="kart tablo-kap uste-az" id="izleme-tablo"></div></details>
+    <div class="izgara-2" style="margin-bottom:1rem">
+        <div class="kart"><div class="kart-ic" style="padding-bottom:.25rem"><h3>En yavaş uçlar</h3><p class="soluk kucuk-yazi">${esc(IZLEME_ARALIK[IZLEME.saat])}, ortalama süreye göre.</p></div>
+            <div class="tablo-kap"><table class="tablo mobil-kart"><thead><tr><th>Uç</th><th>Ortalama</th><th>En uzun</th><th>İstek</th></tr></thead>
+            <tbody>${(v.yavas || []).map((y) => `<tr><td class="ana-yazi"><code class="tasma-kes" title="${esc(y.uc)}">${esc(y.uc)}</code></td>
+                <td data-etiket="Ortalama" class="kirilmaz">${esc(sayi(y.ort_ms, 0))} ms</td><td data-etiket="En uzun" class="kirilmaz">${esc(sayi(y.en_uzun_ms, 0))} ms</td>
+                <td data-etiket="İstek">${esc(sayi(y.sayi, 0))}</td></tr>`).join("") || `<tr><td colspan="4" class="soluk">Bu aralıkta süre bilgisi olan istek yok.</td></tr>`}</tbody></table></div></div>
+        <div class="kart"><div class="kart-ic" style="padding-bottom:.25rem"><h3>Zamanlanmış işler</h3><p class="soluk kucuk-yazi">${(v.cronlar || []).filter((c) => c.etkin).length} etkin, ${(v.cronlar || []).filter((c) => c.etkin && c.hata_sayisi > 0).length} tanesi hata veriyor.</p></div>
+            <div class="tablo-kap" style="max-height:360px;overflow:auto"><table class="tablo mobil-kart"><thead><tr><th>İş</th><th>Son çalışma</th><th>Sonraki</th><th>Durum</th></tr></thead>
+            <tbody>${(v.cronlar || []).map((c) => `<tr><td class="ana-yazi">${esc(c.ad || `#${c.id}`)}<small>${c.aralik ? `her ${esc(c.aralik)} ${esc(CRON_ARALIK[c.aralik_turu] || c.aralik_turu)}` : ""}</small></td>
+                <td data-etiket="Son çalışma" class="kirilmaz">${c.son ? esc(goreli(utcIso(c.son))) : "-"}</td>
+                <td data-etiket="Sonraki" class="kirilmaz">${c.etkin && c.sonraki ? esc(tarihSaat(utcIso(c.sonraki))) : "-"}</td>
+                <td data-etiket="Durum">${cronDurum(c)}</td></tr>`).join("") || `<tr><td colspan="4" class="soluk">${calisiyor ? "Zamanlanmış iş yok." : "Ortam çalışmıyor."}</td></tr>`}</tbody></table></div></div>
+    </div>
+    <div class="kart kart-ic" style="margin-bottom:1rem">
+        <div class="kart-baslik"><h3>Erişilebilirlik, son 30 gün</h3><span class="soluk kucuk-yazi">Ölçüm bu sunucunun içinden</span></div>
+        <div class="erisim-serit" role="img" aria-label="Son 30 günün erişilebilirliği">${(v.gunler || []).map((g) => `<i class="${erisimSinif(g.oran)}" title="${esc(g.gun)}: ${g.oran == null ? "ölçüm yok" : `%${sayi(g.oran, 2)} (${g.olcum} ölçüm)`}"></i>`).join("")}</div>
+    </div>` : ""}
     ${islemIzni ? `<div class="kart kart-ic" style="margin-bottom:1rem"><div class="anahtar-satir"><div>${calisiyor ? "Ortamı durdur" : "Ortamı başlat"}<small>${calisiyor ? "Kullanıcılar giriş yapamaz; veri yerinde kalır." : "Konteyner açılır ve giriş sayfası denetlenir."}</small></div>
         <button class="btn ${calisiyor ? "tehlike-cizgi" : "birincil"}" data-eylem="${calisiyor ? "durdur" : "baslat"}" data-odoo="${esc(od.id)}" data-ortam="${ortamAd}">${ikon(calisiyor ? "dur" : "el", 14)}${calisiyor ? "Durdur" : "Başlat"}</button></div></div>`
         : od.tur === "bagli" && !od.islemler_acik ? uyariKutu("gri", "Bağlanan kurulumda durdurma ve başlatma kapalı. Ayarlar sekmesinden izin verilebilir.") : ""}
@@ -335,8 +446,35 @@ ODOO_SEKME.izleme = async (od, ortamAd) => {
         <div class="bilgi-satir"><span>Son denetim</span><span class="deger">${esc(tarihSaat(d.notr.tarih))}</span></div>
         <div class="bilgi-satir"><span>Çalışan zamanlanmış iş</span><span class="deger">${esc(d.notr.cron)}</span></div>
         <div class="bilgi-satir"><span>Etkin posta sunucusu</span><span class="deger">${esc(d.notr.posta)}</span></div>
-        <div class="bilgi-satir"><span>Etkin e-Belge entegratörü</span><span class="deger">${esc(d.notr.entegrator ?? "tablo yok")}</span></div></div>` : ""}`];
+        <div class="bilgi-satir"><span>Etkin e-Belge entegratörü</span><span class="deger">${esc(d.notr.entegrator ?? "tablo yok")}</span></div></div>` : ""}`,
+    () => izlemeGrafikleri(v)];
 };
+function izlemeGrafikleri(v) {
+    if (!v || v.hata) return;
+    const cizHepsi = () => Object.keys(OLCUTLER).forEach((ad) => {
+        const seri = (v.seriler && v.seriler[ad]) || [];
+        const kap = $(`#grafik-${ad}`);
+        if (kap) grafikCiz(kap, seri, ad, IZLEME.saat, v.deploylar || []);
+        const deger = $(`#deger-${ad}`);
+        if (deger) deger.textContent = seri.length ? `${sayi(seri[seri.length - 1][1], ad === "cpu" ? 1 : 0)}${OLCUTLER[ad].birim ? " " + OLCUTLER[ad].birim : ""}` : "-";
+    });
+    cizHepsi();
+    const tablo = $("#izleme-tablo");
+    if (tablo && v.seriler && v.seriler.cpu.length) {
+        const adlar = Object.keys(OLCUTLER);
+        const zamanlar = [...new Set(adlar.flatMap((ad) => v.seriler[ad].map((n) => n[0])))].sort((a, b) => a - b);
+        const adim = Math.max(1, Math.floor(zamanlar.length / 24));
+        const sec = zamanlar.filter((_, i) => i % adim === 0 || i === zamanlar.length - 1);
+        const bul = (ad, t) => { const n = v.seriler[ad].find((x) => x[0] === t); return n ? `${sayi(n[1], ad === "cpu" ? 1 : 0)}${OLCUTLER[ad].birim ? " " + OLCUTLER[ad].birim : ""}` : "-"; };
+        tablo.innerHTML = `<table class="tablo"><thead><tr><th>Zaman</th>${adlar.map((ad) => `<th>${esc(OLCUTLER[ad].ad)}</th>`).join("")}</tr></thead>
+            <tbody>${sec.map((t) => `<tr><td class="kirilmaz">${esc(tarihSaat(t * 1000))}</td>${adlar.map((ad) => `<td>${esc(bul(ad, t))}</td>`).join("")}</tr>`).join("")}</tbody></table>`;
+    }
+    let zaman;
+    const yeniden = () => { clearTimeout(zaman); zaman = setTimeout(cizHepsi, 120); };
+    window.addEventListener("resize", yeniden);
+    temizleyiciler.push(() => { window.removeEventListener("resize", yeniden); clearTimeout(zaman); });
+}
+EYLEM["izleme-aralik"] = (el) => { IZLEME.saat = el.dataset.saat; ciz({ sessiz: true }); };
 for (const islem of ["durdur", "baslat"]) {
     EYLEM[islem] = (el) => {
         const calistir = () => isBaslat(() => ajan.gonder(`odoolar/${el.dataset.odoo}/${el.dataset.ortam}/${islem}`), `${ortamAdi(el.dataset.ortam)} ${islem === "durdur" ? "durduruluyor" : "başlatılıyor"}`);
@@ -417,28 +555,73 @@ EYLEM["yedek-geri"] = (el) => adresOnayi({
 });
 
 /* ---------- Modüller ---------- */
+const MOD = { ara: "", suzgec: "kurulu", liste: [] };
+const MOD_DURUM = {
+    installed: ["Kurulu", "calisiyor"], uninstalled: ["Kurulu değil", ""], "to upgrade": ["Güncelleme bekliyor", "uyari"],
+    "to install": ["Kurulum bekliyor", "uyari"], "to remove": ["Kaldırılacak", "uyari"], uninstallable: ["Kurulamaz", ""],
+    "listede-yok": ["Uygulama listesinde yok", "uyari"],
+};
+const MOD_SUZGEC = [
+    ["kurulu", "Kurulu", (m) => m.kurulu], ["ozel", "Bu platforma özel", (m) => !!m.kaynak],
+    ["kurulu-degil", "Kurulu değil", (m) => !m.kurulu], ["hepsi", "Tümü", () => true],
+];
+function modulKaynak(m) {
+    if (m.kaynak === "depo") return `<span class="etiket">${ikon("github", 11)}depo</span>`;
+    if (m.kaynak === "ek") return `<span class="etiket">${ikon("yukle", 11)}ek klasör</span>`;
+    return `<span class="soluk kucuk-yazi">${esc(/Odoo S\.A\./.test(m.yazar) ? "Odoo" : m.yazar || "-")}</span>`;
+}
+function modulSatirlari() {
+    const ara = MOD.ara.trim().toLowerCase();
+    const suzgec = (MOD_SUZGEC.find((s) => s[0] === MOD.suzgec) || MOD_SUZGEC[3])[2];
+    return MOD.liste.filter((m) => suzgec(m) && (!ara || [m.ad, m.baslik, m.yazar, m.kategori].some((x) => (x || "").toLowerCase().includes(ara))));
+}
+function modulTabloCiz() {
+    const govde = $("#modul-govde");
+    if (!govde) return;
+    const sec = modulSatirlari();
+    govde.innerHTML = sec.length ? sec.map((m) => {
+        const [durum, sinif] = m.kurulamaz ? ["Kurulamaz", ""] : MOD_DURUM[m.durum] || [m.durum || "-", ""];
+        const surum = m.kaynak ? m.surum : m.kurulu_surum;
+        // Odoo sürümü seri önekiyle saklar: klasörde 0.11.0, veritabanında 20.0.0.11.0
+        const fark = m.kaynak && m.kurulu && m.kurulu_surum && m.surum && m.kurulu_surum !== m.surum && !m.kurulu_surum.endsWith("." + m.surum);
+        return `<tr>
+            <td class="ana-yazi">${esc(m.baslik)}${m.uygulama ? ` <span class="etiket">uygulama</span>` : ""}<small><code>${esc(m.ad)}</code>${m.kategori ? ` · ${esc(m.kategori)}` : ""}</small></td>
+            <td data-etiket="Sürüm"><code>${esc(surum || "-")}</code>${fark ? `<small class="ic-sari">veritabanında ${esc(m.kurulu_surum)}</small>` : ""}</td>
+            <td data-etiket="Durum"><span class="rozet ${sinif}" ${m.durum === "listede-yok" ? `title="Odoo'da Uygulamalar > Uygulama listesini güncelle"` : ""}>${esc(durum)}</span></td>
+            <td data-etiket="Kaynak">${modulKaynak(m)}</td></tr>`;
+    }).join("") : `<tr><td colspan="4" class="soluk">Eşleşen modül yok.</td></tr>`;
+    $("#modul-ozet").textContent = `${sec.length} modül gösteriliyor (toplam ${MOD.liste.length}).`;
+    document.querySelectorAll("[data-eylem=modul-suzgec]").forEach((b) => b.classList.toggle("etkin", b.dataset.suzgec === MOD.suzgec));
+}
+EYLEM["modul-suzgec"] = (el) => { MOD.suzgec = el.dataset.suzgec; modulTabloCiz(); };
 ODOO_SEKME.moduller = async (od, ortamAd, ort) => {
     const v = await ajan.al(`odoolar/${od.id}/${ortamAd}/moduller`);
+    MOD.liste = v.moduller;
     const zipOrtam = od.depo && od.ortamlar.staging && od.depo.dallar.staging ? "staging" : "production";
     const zipDal = od.depo ? od.depo.dallar[zipOrtam] : null;
     const prler = od.zip_pr && od.zip_pr.length ? await ajan.al(`odoolar/${od.id}/zip-pr`).then((x) => x.pr).catch(() => od.zip_pr.slice(0, 5)) : [];
+    const sayilar = Object.fromEntries(MOD_SUZGEC.map(([k, , f]) => [k, v.moduller.filter(f).length]));
     return [`<div class="baslik-satiri"><div><h2>Modüller</h2>
-        <p class="soluk">Bu Odoo'ya özel modüller (depodan ya da ek klasörden). Veritabanında toplam ${esc(v.kurulu_sayisi)} modül kurulu; kurmak ve kaldırmak Odoo'daki Uygulamalar ekranından yapılır.</p></div>
+        <p class="soluk">Veritabanındaki bütün modüller: ${esc(v.kurulu_sayisi)} kurulu, ${esc(v.ozel_sayisi)} tanesi bu platforma özel (depodan ya da ek klasörden). Kurmak ve kaldırmak Odoo'daki Uygulamalar ekranından yapılır.</p></div>
         ${od.depo && yetkili("deploy") && panelOrtami(ort) ? `<button class="btn" data-eylem="uyumluluk" data-odoo="${esc(od.id)}" data-ortam="${ortamAd}">${ikon("tik", 14)}Uyumluluk denetimi</button>` : ""}</div>
-    ${od.depo ? uyariKutu("mavi", `Bu Odoo <code>${esc(od.depo.ad)}</code> deposuna bağlı. Zip ile yüklenen modül sunucuya doğrudan konmaz: depoya commit edilir, sonra her zamanki deploy yolundan gelir.`, "github") : ""}
-    <div class="kart tablo-kap uste-az" style="margin-bottom:1rem"><table class="tablo kartli">
-        <thead><tr><th>Modül</th><th>Sürüm</th><th>Odoo</th><th>Kaynak</th></tr></thead>
-        <tbody>${v.moduller.length ? v.moduller.map((m) => `<tr>
-            <td class="ana-yazi">${esc(m.baslik)}<small><code>${esc(m.ad)}</code></small></td>
-            <td data-etiket="Sürüm"><code>${esc(m.surum)}</code>${m.kurulu && m.kurulu_surum && m.kurulu_surum !== m.surum ? `<small class="ic-sari">veritabanında ${esc(m.kurulu_surum)}</small>` : ""}</td>
-            <td data-etiket="Odoo"><span class="rozet ${m.kurulu ? "calisiyor" : ""}">${m.kurulamaz ? "Kurulamaz" : m.kurulu ? "Kurulu" : "Kurulmadı"}</span></td>
-            <td data-etiket="Kaynak"><span class="etiket">${m.kaynak === "depo" ? `${ikon("github", 11)}depo` : `${ikon("yukle", 11)}ek klasör`}</span></td></tr>`).join("")
-            : `<tr><td colspan="4" class="soluk">Bu Odoo'ya özel modül yok${od.depo && !ort.commit ? " (henüz deploy yapılmadı)" : ""}.</td></tr>`}</tbody>
+    ${od.depo ? uyariKutu("mavi", `Bu platform <code>${esc(od.depo.ad)}</code> deposuna bağlı. Zip ile yüklenen modül sunucuya doğrudan konmaz: depoya commit edilir, sonra her zamanki deploy yolundan gelir.`, "github") : ""}
+    <div class="filtre-satir uste-az">
+        <div class="parca-secim" role="group" aria-label="Modül süzgeci">${MOD_SUZGEC.map(([k, ad]) => `<button class="${MOD.suzgec === k ? "etkin" : ""}" data-eylem="modul-suzgec" data-suzgec="${k}">${esc(ad)} <span class="soluk">${esc(sayilar[k])}</span></button>`).join("")}</div>
+        <label class="alan" style="margin:0;flex:1 1 220px">Ara<input id="modul-ara" value="${esc(MOD.ara)}" placeholder="Modül adı, teknik ad, yazar ya da kategori" autocomplete="off"></label>
+    </div>
+    <div class="kart tablo-kap uste-az" style="margin-bottom:.4rem"><table class="tablo kartli">
+        <thead><tr><th>Modül</th><th>Sürüm</th><th>Durum</th><th>Kaynak</th></tr></thead>
+        <tbody id="modul-govde"></tbody>
     </table></div>
+    <p class="soluk kucuk-yazi" id="modul-ozet" style="margin-bottom:1rem"></p>
     ${prler.length ? `<div class="kart kart-ic" style="margin-bottom:1rem"><h3>Zip'ten açılan PR'lar</h3>
         <ul class="denetim-liste">${prler.map((p) => `<li>${ikon("pr", 14)}<span><a href="${esc(p.adres)}" target="_blank" rel="noopener noreferrer">PR #${esc(p.no)}</a> · <code>${esc((p.moduller || []).join(", "))}</code> → <code>${esc(p.hedef)}</code>
             <span class="rozet ${p.birlesti ? "basarili" : p.durum === "closed" ? "" : "islem"}">${p.birlesti ? "Birleşti" : p.durum === "closed" ? "Kapandı" : p.durum === "open" ? "Açık" : "?"}</span></span></li>`).join("")}</ul></div>` : ""}
-    ${od.depo && od.tur === "panel" && yetkili("modul") ? zipKart(od, zipOrtam, zipDal) : ""}`];
+    ${od.depo && od.tur === "panel" && yetkili("modul") ? zipKart(od, zipOrtam, zipDal) : ""}`, () => {
+        modulTabloCiz();
+        const ara = $("#modul-ara");
+        ara.addEventListener("input", () => { MOD.ara = ara.value; modulTabloCiz(); });
+    }];
 };
 function zipKart(od, ortam, dal) {
     if (od.depo.baglanti !== "app") {
@@ -447,7 +630,7 @@ function zipKart(od, ortam, dal) {
     return `<form class="kart kart-ic" data-form="zip" data-odoo="${esc(od.id)}" data-ortam="${ortam}">
         <h3>Modül yükle (depoya)</h3>
         <p class="soluk kucuk-yazi">Zip açılır ve denetlenir (yol, sembolik bağlantı, gizli anahtar, uyumluluk), modül depoya commit edilir. Hedef dal: <code>${esc(dal)}</code> (${ortamAdi(ortam).toLowerCase()}).</p>
-        ${uyariKutu("sari", "Yüklenen kod bu Odoo'da çalışır ve verisine erişir. Yalnız güvendiğiniz kaynaktan yükleyin.")}
+        ${uyariKutu("sari", "Yüklenen kod bu platformda çalışır ve verisine erişir. Yalnız güvendiğiniz kaynaktan yükleyin.")}
         <label class="alan">Modül dosyası (.zip, en çok 60 MB)<input type="file" name="dosya" accept=".zip" required></label>
         <label class="secenek"><input type="radio" name="hedef" value="dal" checked><span><strong><code>${esc(dal)}</code> dalına doğrudan commit</strong><small>${od.depo.kip[ortam] === "webhook" ? "Deploy hemen başlar." : "Ortam elle güncellendiği için commit bekleyen olarak görünür."}</small></span></label>
         <label class="secenek"><input type="radio" name="hedef" value="pr"><span><strong>Yeni dal + PR</strong><small>GitHub'da gözden geçirilip birleştirilince deploy olur.</small></span></label>
@@ -491,18 +674,18 @@ ODOO_SEKME.ayarlar = async (od, ortamAd) => {
     }
     if (od.tur === "panel" && yetkili("sil")) {
         bolumler.push(`<section class="kart kart-ic" style="border-color:var(--kirmizi)">
-            <h2 style="color:var(--kirmizi)">Bu Odoo'yu sil</h2>
+            <h2 style="color:var(--kirmizi)">Bu platformu sil</h2>
             <p class="soluk kucuk-yazi uste-az">Staging'iyle birlikte bütün verisi silinir ve adresi çalışmaz. Silmeden önce son bir yedek alınır ve sunucuda saklanır.</p>
             <div class="dugmeler"><button class="btn tehlike" data-eylem="odoo-sil" data-odoo="${esc(od.id)}" data-adres="${esc(alanAdi(pr.adres))}">Kalıcı olarak sil</button></div>
         </section>`);
     }
-    return [`<div class="yigin" style="max-width:920px">${bolumler.join("") || bosDurum("Ayar yok", "Bu Odoo için değiştirebileceğiniz ayar yok.")}</div>`, () => depoFormuBagla(od)];
+    return [`<div class="yigin" style="max-width:920px">${bolumler.join("") || bosDurum("Ayar yok", "Bu platform için değiştirebileceğiniz ayar yok.")}</div>`, () => depoFormuBagla(od)];
 };
 function bagliBolum(od) {
     const yetki = yetkili("bagla") && tumKapsam();
     return `<section class="kart kart-ic">
         <h2 style="margin-bottom:.35rem">Bağlanan kurulum</h2>
-        ${uyariKutu("gri", `Bu Odoo panel dışında kurulmuş ve sonradan bağlanmış (${esc(KAYNAK_ADI[od.kaynak] || od.kaynak)}). Panel izler, yedekler ve staging açar; kurulum biçimine ve compose dosyasına dokunmaz.`, "ara")}
+        ${uyariKutu("gri", `Bu platform panel dışında kurulmuş ve sonradan bağlanmış (${esc(KAYNAK_ADI[od.kaynak] || od.kaynak)}). Panel izler, yedekler ve staging açar; kurulum biçimine ve compose dosyasına dokunmaz.`, "ara")}
         <div class="bilgi-satir"><span>Konteyner</span><code>${esc(od.ortamlar.production.konteyner)}</code></div>
         <div class="bilgi-satir"><span>Bağlanma</span><span class="deger">${esc(tarihSaat(od.olusturma))}${od.olusturan ? ` · ${esc(od.olusturan)}` : ""}</span></div>
         <div class="anahtar-satir"><div>Panelden durdurma ve başlatma<small>Açıksa İzleme sekmesinden konteyner durdurulup başlatılabilir (docker stop/start).</small></div>
@@ -610,7 +793,7 @@ EYLEM["staging-sil"] = (el) => adresOnayi({
     }),
 });
 EYLEM["odoo-sil"] = (el) => adresOnayi({
-    baslik: "Odoo'yu sil", metin: "Bu Odoo staging'iyle birlikte silinir; adresi çalışmaz. Silmeden önce son bir yedek alınır ve saklanır.",
+    baslik: "Platformu sil", metin: "Bu platform staging'iyle birlikte silinir; adresi çalışmaz. Silmeden önce son bir yedek alınır ve saklanır.",
     beklenen: el.dataset.adres, dugme: "Kalıcı olarak sil",
     evet: (onay) => isBaslat(() => ajan.gonder(`odoolar/${el.dataset.odoo}/sil`, { onay }), "Odoo siliniyor", {
         bitince: async (k) => { if (k.durum === "tamam") { S.odoolar = null; git("#/odoolar"); } },

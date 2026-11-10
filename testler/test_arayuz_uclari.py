@@ -17,11 +17,17 @@ class ArayuzUclariTesti(Temel):
     def test_moduller(self):
         v = self.s.moduller("deneme", "production")
         satirlar = {m["ad"]: m for m in v["moduller"]}
-        self.assertEqual(sorted(satirlar), ["mod_a", "mod_b"])
+        # bütün modüller: veritabanındakiler (kurulu ya da değil) + depodakiler
+        self.assertTrue({"mod_a", "mod_b", "base", "sale", "stock"} <= set(satirlar))
         self.assertTrue(satirlar["mod_a"]["kurulu"])
         self.assertFalse(satirlar["mod_b"]["kurulu"])
-        self.assertEqual(satirlar["mod_a"]["kaynak"], "depo")
-        self.assertGreaterEqual(v["kurulu_sayisi"], 2)
+        self.assertEqual((satirlar["mod_a"]["kaynak"], satirlar["mod_b"]["kaynak"]), ("depo", "depo"))
+        self.assertEqual(satirlar["mod_b"]["durum"], "listede-yok")
+        self.assertIsNone(satirlar["sale"]["kaynak"])
+        self.assertEqual(satirlar["sale"]["baslik"], "Sale TR")  # jsonb çevirisinden Türkçe
+        self.assertTrue(satirlar["sale"]["uygulama"])
+        self.assertEqual(v["ozel_sayisi"], 2)
+        self.assertEqual(v["kurulu_sayisi"], sum(1 for m in v["moduller"] if m["kurulu"]))
 
     def test_loglar(self):
         v = self.s.loglar("deneme", "production", 80)

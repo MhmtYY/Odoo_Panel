@@ -46,6 +46,7 @@ ISTEKLER = [
     ("GET", rf"odoolar/({AD})/onde", "izle", "odoo"),
     ("GET", rf"odoolar/({AD})/zip-pr", "izle", "odoo"),
     ("GET", rf"odoolar/({AD})/({ORT})/durum", "izle", "odoo"),
+    ("GET", rf"odoolar/({AD})/({ORT})/izleme", "izle", "odoo"),
     ("POST", rf"odoolar/({AD})/({ORT})/(durdur|baslat)", "durdur", "odoo"),
     ("GET", rf"odoolar/({AD})/({ORT})/deploylar", "izle", "odoo"),
     ("GET", rf"odoolar/({AD})/({ORT})/deploylar/(\d+)", "izle", "odoo"),

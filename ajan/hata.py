@@ -2,10 +2,11 @@
 
 
 class Hata(Exception):
-    def __init__(self, kod, mesaj):
+    def __init__(self, kod, mesaj, ayrinti=None):
         super().__init__(mesaj)
         self.kod = kod
         self.mesaj = mesaj
+        self.ayrinti = ayrinti  # teknik ayrıntı (komut, çıktı); arayüzde katlanır bölümde gösterilir
 
 
 class Mesgul(Hata):

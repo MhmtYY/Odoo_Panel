@@ -86,8 +86,15 @@ class Isler:
         is_kaydi["cikti"] = "\n".join(satirlar[-satir:])
         return is_kaydi
 
-    def liste(self, odoo=None, sinir=50):
+    def liste(self, odoo=None, sinir=50, idler=None):
         kayitlar = []
+        if idler:  # denetim kaydındaki işlerin sonucu
+            for is_no in idler[:300]:
+                if len(is_no) == 12 and all(c in "0123456789abcdef" for c in is_no):
+                    is_kaydi = kayit.oku(self.dizin / f"{is_no}.json")
+                    if is_kaydi:
+                        kayitlar.append(is_kaydi)
+            return kayitlar
         for yol in sorted(self.dizin.glob("*.json"), key=lambda p: p.stat().st_mtime, reverse=True):
             try:
                 is_kaydi = json.loads(yol.read_text(encoding="utf-8"))
@@ -99,6 +106,14 @@ class Isler:
             if len(kayitlar) >= sinir:
                 break
         return kayitlar
+
+    def _mesgul_metni(self, is_no):
+        k = kayit.oku(self.dizin / f"{is_no}.json") or {}
+        ne = k.get("aciklama") or k.get("tur") or "bir iş"
+        kim = f", {k['kullanici']}" if k.get("kullanici") else ""
+        zaman = str(k.get("baslangic") or k.get("olusturma") or "")
+        ne_zaman = f", {zaman[11:16]} başladı" if len(zaman) >= 16 else ""
+        return f"Bu ortamda süren bir iş var ({ne}{kim}{ne_zaman}). Bitince tekrar deneyin."
 
     def mesgul(self, anahtar):
         with self._kilit:
@@ -120,7 +135,7 @@ class Isler:
         with self._kilit:
             if anahtar in self._aktif:
                 if not kuyruk:
-                    raise Mesgul()
+                    raise Mesgul(self._mesgul_metni(self._aktif[anahtar]))
                 eski = self._bekleyen.get(anahtar)
                 if eski:
                     eski[0].update({"durum": "atlandi", "bitis": kayit.simdi(),
@@ -156,14 +171,16 @@ class Isler:
             finally:
                 if agir:
                     self._agir.release()
-        except Hata as hata:
+        except (Hata, KomutHatasi) as hata:
             is_kaydi.update(durum="hata", hata=hata.mesaj)
+            if getattr(hata, "ayrinti", None):
+                is_kaydi["ayrinti"] = hata.ayrinti
             baglam.yaz(f"HATA: {hata.mesaj}")
-        except KomutHatasi as hata:
-            is_kaydi.update(durum="hata", hata=str(hata))
-            baglam.yaz(f"HATA: {hata}")
+            if getattr(hata, "ayrinti", None):
+                baglam.yaz(hata.ayrinti)
         except Exception as hata:  # noqa: BLE001 - iş kaydına yazılır
-            is_kaydi.update(durum="hata", hata=f"Beklenmeyen hata: {hata}")
+            is_kaydi.update(durum="hata", hata=f"Beklenmeyen hata: {type(hata).__name__}: {hata}",
+                            ayrinti=traceback.format_exc()[-4000:])
             baglam.yaz(traceback.format_exc())
         finally:
             is_kaydi["bitis"] = kayit.simdi()

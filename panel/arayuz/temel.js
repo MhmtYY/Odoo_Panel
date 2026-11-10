@@ -48,6 +48,8 @@ const IKONLAR = {
     denetim: '<rect x="5" y="4" width="14" height="17" rx="2"/><path d="M9 4h6v3H9zM9 12h6M9 16h4"/>',
     deploy: '<circle cx="6" cy="5" r="2"/><circle cx="6" cy="19" r="2"/><circle cx="18" cy="8" r="2"/><path d="M6 7v10M18 10c0 4-6 3-12 5"/>',
     izleme: '<path d="M3 12h4l3-7 4 14 3-7h4"/>',
+    asistan: '<path d="M12 3l1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8z"/><path d="M19 16v4M17 18h4"/>',
+    baglanti: '<path d="M9 7V3M15 7V3M7 7h10v4a5 5 0 0 1-10 0z"/><path d="M12 16v5"/>',
     log: '<path d="M8 6h13M8 12h13M8 18h13M3.5 6h.01M3.5 12h.01M3.5 18h.01"/>',
     yedek: '<ellipse cx="12" cy="5.5" rx="8" ry="3"/><path d="M4 5.5v6c0 1.7 3.6 3 8 3s8-1.3 8-3v-6M4 11.5v6c0 1.7 3.6 3 8 3s8-1.3 8-3v-6"/>',
     modul: '<path d="M12 3l8 4.5v9L12 21l-8-4.5v-9z"/><path d="M4 7.5l8 4.5 8-4.5M12 12v9"/>',
@@ -100,7 +102,8 @@ function bosDurum(baslik, metin, dugmeler = "", simge = "bilgi") {
     return `<div class="kart bos-durum">${ikon(simge, 30, 'class="soluk"')}<h2 class="uste-az">${baslik}</h2><p class="soluk">${metin}</p>${dugmeler ? `<div class="dugmeler">${dugmeler}</div>` : ""}</div>`;
 }
 function hataKart(e) {
-    return uyariKutu("kirmizi", `<strong>Yüklenemedi.</strong> ${esc(e && e.message ? e.message : e)} <button class="btn kucuk" data-eylem="yeniden-ciz">Tekrar dene</button>`);
+    const ayrinti = e && e.ayrinti ? `<details class="uste-az"><summary class="kucuk-yazi" style="cursor:pointer">Teknik ayrıntı</summary><pre class="kayit">${esc(e.ayrinti)}</pre></details>` : "";
+    return uyariKutu("kirmizi", `<strong>Yüklenemedi.</strong> ${esc(e && e.message ? e.message : e)} <button class="btn kucuk" data-eylem="yeniden-ciz">Tekrar dene</button>${ayrinti}`);
 }
 
 /* ---------- yetki ---------- */
@@ -114,8 +117,13 @@ function tekOdoo() {
 
 /* ---------- API ---------- */
 class ApiHata extends Error {
-    constructor(kod, mesaj) { super(mesaj); this.kod = kod; }
+    constructor(kod, mesaj, ayrinti) { super(mesaj); this.kod = kod; this.ayrinti = ayrinti || ""; }
 }
+const HTTP_ACIKLAMA = {
+    400: "İstek geçersiz.", 403: "Bu işlem için yetkiniz yok.", 404: "Bulunamadı.",
+    409: "Çakışma: bu kayıt ya da ortam şu an başka bir işlemle meşgul.", 413: "Gönderilen dosya çok büyük.",
+    500: "Sunucuda hata oluştu.", 502: "Panel sunucudaki ajana ulaşamadı.", 504: "Sunucu zamanında yanıt vermedi.",
+};
 async function api(yontem, yol, govde, secenek = {}) {
     const basliklar = {};
     let veri;
@@ -131,7 +139,7 @@ async function api(yontem, yol, govde, secenek = {}) {
     let j = {};
     try { j = await yanit.json(); } catch { /* boş yanıt */ }
     if (yanit.status === 401 && !secenek.giris) { oturumBitti(j.hata); throw new ApiHata(401, j.hata || "Oturum kapandı."); }
-    if (!yanit.ok) throw new ApiHata(yanit.status, j.hata || `İstek başarısız (${yanit.status}).`);
+    if (!yanit.ok) throw new ApiHata(yanit.status, j.hata || HTTP_ACIKLAMA[yanit.status] || `İstek başarısız (HTTP ${yanit.status}).`, j.ayrinti);
     return j;
 }
 const ajan = {
@@ -152,17 +160,32 @@ function oturumBitti(mesaj) {
 }
 
 /* ---------- bildirim ve pencere ---------- */
-function bildir(mesaj, hata = false) {
+/* Başarı bildirimi kendiliğinden kapanır. Hata bildirimi kapatılana kadar durur; teknik ayrıntı katlanır bölümdedir. */
+function bildir(mesaj, hata = false, ayrinti = "") {
     const el = document.createElement("div");
-    el.className = "bildirim" + (hata ? " kirmizi" : "");
-    el.innerHTML = ikon(hata ? "uyari" : "tik", 16) + "<span></span>";
-    el.querySelector("span").textContent = mesaj;
+    el.className = "bildirim" + (hata ? " kirmizi kalici" : "");
+    el.setAttribute("role", hata ? "alert" : "status");
+    el.innerHTML = ikon(hata ? "uyari" : "tik", 16)
+        + `<div class="bildirim-govde"><span class="bildirim-metin"></span>${ayrinti ? `<details><summary>Teknik ayrıntı</summary><pre></pre>
+            <button type="button" class="bildirim-dugme">${ikon("kopya", 13)}Kopyala</button></details>` : ""}</div>`
+        + (hata ? `<button type="button" class="bildirim-kapat" aria-label="Kapat" title="Kapat">${ikon("hata", 14)}</button>` : "");
+    el.querySelector(".bildirim-metin").textContent = mesaj;
+    if (ayrinti) {
+        el.querySelector("pre").textContent = ayrinti;
+        el.querySelector(".bildirim-dugme").onclick = () => kopyala(`${mesaj}\n\n${ayrinti}`);
+    }
     const kap = $("#bildirimler");
     const p = $("#pencere");
     if (p.open && kap.parentElement !== p) p.appendChild(kap);
     if (!p.open && kap.parentElement !== document.body) document.body.appendChild(kap);
     kap.appendChild(el);
-    setTimeout(() => el.remove(), hata ? 7000 : 4000);
+    if (hata) {
+        el.querySelector(".bildirim-kapat").onclick = () => el.remove();
+        const kalicilar = kap.querySelectorAll(".bildirim.kalici");
+        if (kalicilar.length > 4) kalicilar[0].remove();
+    } else {
+        setTimeout(() => el.remove(), 4000);
+    }
 }
 async function kopyala(metin) {
     try { await navigator.clipboard.writeText(metin); bildir("Kopyalandı."); }
@@ -212,7 +235,7 @@ function adresOnayi({ baslik, metin, beklenen, dugme, evet }) {
 async function dene(islev, hataMetni) {
     try { return await islev(); }
     catch (e) {
-        if (e.kod !== 401) bildir(`${hataMetni ? hataMetni + ": " : ""}${e.message}`, true);
+        if (e.kod !== 401) bildir(`${hataMetni ? hataMetni + ": " : ""}${e.message}`, true, e.ayrinti);
         return null;
     }
 }
@@ -241,6 +264,7 @@ function isGovdesi(k) {
             <span class="rozet ${sinif}">${k.durum === "calisiyor" ? ikon("don", 11, 'class="donen"') : ""}${esc(yazi)}</span>
             <span class="soluk">${esc(k.aciklama || k.tur)}${k.kullanici ? ` · ${esc(k.kullanici)}` : ""}</span></p>
         ${sonuc ? uyariKutu(k.durum === "atlandi" ? "gri" : "kirmizi", esc(sonuc)) : ""}
+        ${k.ayrinti ? `<details class="uste-az"><summary class="soluk kucuk-yazi" style="cursor:pointer">Teknik ayrıntı</summary><pre class="kayit">${esc(k.ayrinti)}</pre></details>` : ""}
         ${adimlar ? `<ul class="denetim-liste uste-az">${adimlar}</ul>` : ""}
         ${uyarilar ? `<ul class="denetim-liste uste-az">${uyarilar}</ul>` : ""}
         <details ${k.durum === "hata" ? "open" : ""} class="uste-az"><summary class="soluk kucuk-yazi" style="cursor:pointer">Kayıt</summary>
@@ -281,7 +305,8 @@ function isIzle(isKaydi, baslik, secenek = {}) {
             const ek = bilgi.kapanis ? bilgi.kapanis(k) : "";
             $("#is-dugmeler").innerHTML = `${ek}<button class="btn ${ek ? "" : "birincil"}" data-eylem="is-kapat">Kapat</button>`;
         } else {
-            bildir(`${bilgi.baslik}: ${IS_DURUM[k.durum] ? IS_DURUM[k.durum][0].toLowerCase() : k.durum}.`, k.durum === "hata");
+            const durum = IS_DURUM[k.durum] ? IS_DURUM[k.durum][0].toLowerCase() : k.durum;
+            bildir(`${bilgi.baslik}: ${durum}.${k.durum === "hata" ? " " + isSonucMetni(k) : ""}`, k.durum === "hata", k.ayrinti);
         }
         if (bilgi.bitince) await bilgi.bitince(k);
         arkadaYenile();
@@ -296,12 +321,14 @@ async function isBaslat(istek, baslik, secenek = {}) {
 
 /* ---------- menü ve yönlendirme ---------- */
 const PLATFORM_MENU = [
-    { ad: "odoolar", baslik: "Odoo'lar", ikon: "odoolar" },
+    { ad: "odoolar", baslik: "Platformlar", ikon: "odoolar" },
     { ad: "kullanicilar", baslik: "Kullanıcılar ve roller", ikon: "kullanici", yetki: "kullanicilar" },
     { ad: "denetim", baslik: "Denetim kaydı", ikon: "denetim", yetki: "izle" },
+    { ad: "baglantilar", baslik: "Ajan bağlantıları", ikon: "baglanti" },
 ];
 const ODOO_SEKMELER = [
     { ad: "deploylar", baslik: "Deploylar", ikon: "deploy" },
+    { ad: "asistan", baslik: "Asistan", ikon: "asistan", yetki: "asistan" },
     { ad: "izleme", baslik: "İzleme", ikon: "izleme" },
     { ad: "loglar", baslik: "Loglar", ikon: "log" },
     { ad: "yedekler", baslik: "Yedekler", ikon: "yedek", yetki: "yedekAl" },
@@ -370,8 +397,8 @@ function yanCiz() {
         <div class="marka"><span class="marka-logo">${LOGO}</span>
             <div style="min-width:0"><div class="marka-ad">Odoo Yönetim Paneli</div><div class="marka-alt tasma-kes">${esc(tek ? tek.firma : "Çoklu Odoo Yönetimi")}</div></div></div>
         ${menu ? `<nav aria-label="Panel">${menu}</nav>` : ""}
-        <div class="yan-bolum"><span>${tumKapsam() ? "Odoo'lar" : "Erişebildiğiniz Odoo'lar"}</span></div>
-        <nav aria-label="Odoo'lar">${odoolar || `<span class="yan-oge soluk" style="cursor:default">Henüz yok</span>`}</nav>
+        <div class="yan-bolum"><span>${tumKapsam() ? "Platformlar" : "Erişebildiğiniz platformlar"}</span></div>
+        <nav aria-label="Platformlar">${odoolar || `<span class="yan-oge soluk" style="cursor:default">Henüz yok</span>`}</nav>
         <div class="yan-alt">
             <div class="yan-kullanici">
                 <span class="avatar">${esc(ben.kullanici.slice(0, 2).toUpperCase())}</span>
@@ -402,7 +429,7 @@ async function ciz(secenek = {}) {
         if (R.ekran === "odoo") [html, sonra] = await odooEkrani(R);
         else [html, sonra] = await PLATFORM[R.ekran]();
     } catch (e) {
-        html = e.kod === 404 ? bosDurum("Bulunamadı", esc(e.message), `<a class="btn" href="#/odoolar">Odoo'lara dön</a>`, "uyari") : hataKart(e);
+        html = e.kod === 404 ? bosDurum("Bulunamadı", esc(e.message), `<a class="btn" href="#/odoolar">Platformlara dön</a>`, "uyari") : hataKart(e);
     }
     clearTimeout(bekle);
     if (no !== cizimNo) return;

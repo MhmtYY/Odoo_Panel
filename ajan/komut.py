@@ -4,6 +4,7 @@ Gizli değerler (token, şifre) kayda ve hata metnine "***" olarak yazılır.
 Testler bu sınıfın yerine sahte bir çalıştırıcı verir (testler/sahte.py).
 """
 import os
+import re
 import subprocess
 import threading
 from dataclasses import dataclass
@@ -20,13 +21,73 @@ class Sonuc:
         return self.kod == 0
 
 
+# Sık görülen çıktılar -> kullanıcıya gösterilecek açıklama (ilk eşleşen kullanılır)
+BILINEN_NEDENLER = [
+    (r"No space left on device", "Sunucuda disk dolu."),
+    (r"Zaman aşımı: \d+ sn|timed out|Timeout", "İşlem zaman aşımına uğradı."),
+    (r"OOMKilled|Out of memory|out of memory|exit code 137", "İşlem bellek yetmediği için durduruldu."),
+    (r"Cannot connect to the Docker daemon", "Docker hizmetine ulaşılamadı."),
+    (r"No such container|No such object|is not running", "Konteyner bulunamadı ya da çalışmıyor."),
+    (r"database \"[^\"]+\" does not exist", "Veritabanı bulunamadı."),
+    (r"role \"[^\"]+\" does not exist", "Veritabanı kullanıcısı bulunamadı."),
+    (r"Permission denied \(publickey\)|Could not read from remote repository|Repository not found",
+     "GitHub deposuna erişilemedi: depo adı ya da erişim anahtarı yanlış."),
+    (r"Could not resolve host", "Sunucu dış adrese ulaşamadı (DNS)."),
+    (r"[Cc]onnection refused|could not connect to server", "Bağlantı kurulamadı; hizmet kapalı olabilir."),
+    (r"[Pp]ermission denied", "Dosya ya da klasör izni yetersiz."),
+    (r"Komut bulunamadı", "Sunucuda gereken program kurulu değil."),
+]
+
+
+def _komut_adi(args):
+    a = [str(x) for x in args]
+    if not a:
+        return "Komut"
+    if a[0] == "git":
+        return "Git komutu"
+    if a[0] == "docker":
+        if "python3" in a or "python" in a:
+            return "Odoo imajı içindeki Python betiği"
+        if any(x in a for x in ("psql", "pg_dump", "pg_restore", "createdb", "dropdb")):
+            return "Veritabanı komutu"
+        if "compose" in a:
+            return "Docker compose komutu"
+        if len(a) > 1:
+            return f"Docker komutu ({a[1]})"
+    return f"{a[0]} komutu"
+
+
+def hata_acikla(args, sonuc):
+    """(kullanıcıya açıklama, teknik ayrıntı)."""
+    cikti = (sonuc.cikti or "").strip()
+    satirlar = cikti.splitlines()
+    neden = next((metin for desen, metin in BILINEN_NEDENLER if re.search(desen, cikti)), None)
+    # Python izinde son satır asıl hatadır (ör. "AttributeError: ...")
+    son = next((s.strip() for s in reversed(satirlar)
+                if re.match(r"^\s*[A-Za-z_.]*(Error|Exception|Exit)\b.*:", s)), None)
+    if not son:
+        son = next((s.strip() for s in reversed(satirlar) if re.search(r"(?i)\b(error|hata|fatal)\b", s)), None)
+    son = son[:300] if son else None
+    if neden and son:
+        mesaj = f"{_komut_adi(args)} hata verdi: {neden} Ayrıntı: {son}"
+    elif neden or son:
+        mesaj = f"{_komut_adi(args)} hata verdi: {neden or son}"
+    else:
+        mesaj = f"{_komut_adi(args)} hata verdi (çıkış kodu {sonuc.kod})."
+    gosterilen = " ".join(str(x) for x in args)
+    if len(gosterilen) > 400:
+        gosterilen = gosterilen[:400] + " ..."
+    ayrinti = f"$ {gosterilen}\nÇıkış kodu: {sonuc.kod}\n" + "\n".join(satirlar[-25:])
+    return mesaj, ayrinti
+
+
 class KomutHatasi(Exception):
     def __init__(self, args, sonuc):
         self.args_ = args
         self.sonuc = sonuc
-        kuyruk = (sonuc.cikti or "").strip().splitlines()[-12:]
-        super().__init__(f"Komut başarısız ({sonuc.kod}): {args[0]} {' '.join(str(a) for a in args[1:3])} ...\n"
-                         + "\n".join(kuyruk))
+        self.kod = 500
+        self.mesaj, self.ayrinti = hata_acikla(args, sonuc)
+        super().__init__(self.mesaj)
 
 
 class Komut:
@@ -89,7 +150,7 @@ class Komut:
             for dosya in acilan:
                 dosya.close()
         if kontrol and sonuc.kod != 0:
-            raise KomutHatasi(args, sonuc)
+            raise KomutHatasi([self.maskele(str(a)) for a in args], sonuc)
         return sonuc
 
     @staticmethod

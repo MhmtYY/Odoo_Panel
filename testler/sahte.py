@@ -29,6 +29,7 @@ class SahteKomut(Komut):
         self.python_var = {"requests"}
         self.imaj_moduller = ["base", "web", "mail", "account", "sale", "stock", "contacts"]
         self.inceleme = {}  # docker inspect <ad> için JSON
+        self.istek_satirlari = []  # izleme: docker logs --since çıktısı
         self.ps_adlari = []
         self.guncellenenler = []
         self.notrlestirilen = []
@@ -62,6 +63,10 @@ class SahteKomut(Komut):
         self.cagrilar.append(args)
         if args[0] == "openssl":
             return self._sonuc(0, "", args=args, ham=b"sahte-imza")
+        if args[:2] == ["ip", "-o"]:
+            return self._sonuc(0, "\n".join(f"{i}: e{i}    inet {a}/{m} scope global e{i}" for i, (a, m) in
+                                            enumerate([("127.0.0.1", 8), ("89.167.114.61", 32), ("172.19.0.1", 16)], 1)),
+                               log, kontrol, args)
         if args[0] != "docker":
             return self._sonuc(127, f"bilinmeyen komut {args[0]}", log, kontrol, args)
         if isinstance(girdi, bytes):
@@ -105,10 +110,15 @@ class SahteKomut(Komut):
         if a[0] in ("stop", "start"):
             self.konteynerler[a[-1]] = "exited" if a[0] == "stop" else "running"
             return 0, ""
+        if a[0] == "top":
+            return (0, "PID COMMAND\n" + "\n".join(f"{i} /usr/bin/python3 /usr/bin/odoo" for i in range(1, 6))
+                    + "\n99 sh") if self.konteynerler.get(a[1]) == "running" else (1, "is not running")
         if a[0] == "logs":
             ad = a[-1]
             if ad not in self.konteynerler:
                 return 1, "No such container"
+            if "--since" in a:  # izleme: son ölçümden beri gelen istek satırları
+                return 0, "\n".join(self.istek_satirlari)
             satirlar = [f"2026-11-10T10:{i:02d}:00Z 2026-11-10 10:{i:02d}:00,000 1 INFO {ad} odoo.service.server: "
                         f"istek {i}" for i in range(20)]
             satirlar.append(f"2026-11-10T10:21:00Z 2026-11-10 10:21:00,000 1 WARNING {ad} odoo.addons.base: örnek uyarı")
@@ -197,6 +207,10 @@ class SahteKomut(Komut):
 
     def _sql(self, konteyner, db, sql):
         anahtar = (konteyner, db)
+        if "asistan_sorgusu" in sql:  # asistanın salt okunur sorgusu (--csv)
+            return 0, "id,name\n1,Azure\n2,Deco\n"
+        if "pg_database_size" in sql:
+            return 0, "\n".join(f"{d}|104857600" for k, d in self.veritabanlari if k == konteyner)
         if "FROM pg_database" in sql:
             ad = re.search(r"datname = '([^']+)'", sql).group(1)
             return 0, "1" if (konteyner, ad) in self.veritabanlari else ""
@@ -207,6 +221,24 @@ class SahteKomut(Komut):
             sablon = eslesme.group(2)
             kaynak = self.veritabanlari.get((konteyner, sablon), set()) if sablon and sablon != "template0" else set()
             self.veritabanlari[(konteyner, eslesme.group(1))] = set(kaynak)
+        if "FROM pg_stat_activity" in sql:
+            return 0, "\n".join(f"{d}|3" for k, d in self.veritabanlari if k == konteyner)
+        if "table_name = 'ir_cron'" in sql:
+            return 0, "\n".join(["id", "cron_name", "active", "nextcall", "lastcall", "failure_count",
+                                 "interval_number", "interval_type", "ir_actions_server_id"])
+        if "AS aralik_turu FROM ir_cron c" in sql:  # izleme: zamanlanmış işler listesi
+            return 0, json.dumps([
+                {"id": 1, "ad": "Posta kuyruğu", "etkin": True, "sonraki": "2026-11-10T18:30:00", "son": "2026-11-10T18:25:00",
+                 "hata_sayisi": 0, "aralik": 5, "aralik_turu": "minutes"},
+                {"id": 2, "ad": "Kur güncelleme", "etkin": True, "sonraki": "2026-11-11T09:00:00", "son": "2026-11-10T09:00:00",
+                 "hata_sayisi": 2, "aralik": 1, "aralik_turu": "days"}])
+        if "json_build_object('ad', m.name" in sql:  # modül listesi: kurulu olanlar + imajdaki diğerleri
+            kurulu = self.veritabanlari.get(anahtar, set())
+            return 0, json.dumps([{"ad": m, "baslik": json.dumps({"en_US": m.title(), "tr_TR": m.title() + " TR"}),
+                                   "durum": "installed" if m in kurulu else "uninstalled", "surum": "20.0.1.0.0",
+                                   "yazar": "Odoo S.A.", "uygulama": m == "sale", "lisans": "LGPL-3",
+                                   "kategori": json.dumps({"en_US": "Sales"})}
+                                  for m in sorted(kurulu | set(self.imaj_moduller))])
         if "latest_version" in sql:
             return 0, "\n".join(f"{m}|20.0.1.0.0" for m in sorted(self.veritabanlari.get(anahtar, set())))
         if "WHERE state = 'installed' ORDER BY 1" in sql:

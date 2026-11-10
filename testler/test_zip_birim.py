@@ -1,7 +1,10 @@
 """Zip -> depo akışı ve birim testleri (uyumluluk, zip incelemesi, gereksinimler, GitHub, HTTP)."""
 import io
 import json
+import os
 import shutil
+import subprocess
+import sys
 import tempfile
 import threading
 import unittest
@@ -11,7 +14,7 @@ import zipfile
 from http.server import ThreadingHTTPServer
 from pathlib import Path
 
-from ajan import pykatman, sunucu, uyumluluk, zipdepo
+from ajan import ortam, pykatman, sunucu, uyumluluk, zipdepo
 from ajan.github import GitHub, imza_dogru
 from ajan.hata import Hata
 
@@ -109,6 +112,21 @@ class BirimTesti(unittest.TestCase):
     def tearDown(self):
         shutil.rmtree(self.tmp, ignore_errors=True)
 
+    def test_imaj_taramasi_odoo20_ad_alani(self):
+        # Odoo 20 imajındaki yerleşim: odoo/ ve odoo/addons/ altında __init__.py yok (ad alanı paketi).
+        kok = self.tmp / "imaj"
+        (kok / "odoo" / "addons" / "base").mkdir(parents=True)
+        (kok / "odoo" / "addons" / "base" / "__manifest__.py").write_text("{}")
+        (kok / "odoo" / "addons" / "web").mkdir()
+        (kok / "odoo" / "addons" / "web" / "__manifest__.py").write_text("{}")
+        (kok / "odoo" / "release.py").write_text("series = '20.0'\nversion = '20.0'\n")
+        ortam_degiskeni = {k: v for k, v in os.environ.items() if k not in ("PYTHONPATH", "PYTHONHOME")}
+        sonuc = subprocess.run([sys.executable, "-c", ortam.IMAJ_TARAMA], cwd=kok, env=ortam_degiskeni,
+                               capture_output=True, text=True, timeout=60)
+        self.assertEqual(sonuc.returncode, 0, sonuc.stderr)
+        bilgi = json.loads(sonuc.stdout.strip().splitlines()[-1])
+        self.assertEqual((bilgi["seri"], bilgi["moduller"]), ("20.0", ["base", "web"]))
+
     def modul_yaz(self, ad, metin, ek=None):
         klasor = self.tmp / "kod" / ad
         klasor.mkdir(parents=True)
@@ -191,6 +209,27 @@ class HttpTesti(Temel):
         self.httpd.shutdown()
         self.httpd.server_close()
         super().tearDown()
+
+    def test_istek_adresi_denetimi(self):
+        # Sunucuda: sunucudan ajana giden istek Docker NAT'ından sonra genel adresle gelir (89.167.114.61).
+        istek = object.__new__(sunucu.Istek)
+        istek.servis = self.s
+
+        def izinli(ip):
+            sunucu.Istek._ip.update(zaman=0.0, ipler=set())
+            sunucu.Istek._yerel.update(zaman=0.0, ipler=set())
+            istek.client_address = (ip, 40000)
+            return istek._izinli()
+
+        self.ayar.kuru = False
+        self.ayar.adres = "172.19.0.1"
+        for ip in ("127.0.0.1", "172.19.0.1", "89.167.114.61", "172.18.0.5"):  # sonuncusu panel konteyneri (sahte)
+            self.assertTrue(izinli(ip), ip)
+        for ip in ("172.19.0.7", "10.0.0.9"):  # başka konteyner, başka makine
+            self.assertFalse(izinli(ip), ip)
+        onceki = len(self.komut.bul("ip -o -4 addr show"))
+        self.assertFalse(istek._izinli())  # aynı adres önbellekten: komut yeniden çalışmaz
+        self.assertEqual(len(self.komut.bul("ip -o -4 addr show")), onceki)
 
     def istek(self, yontem, yol, govde=None, anahtar="ajan-anahtari-123456"):
         veri = json.dumps(govde).encode() if govde is not None else None

@@ -1,9 +1,13 @@
 """Parçaları birbirine bağlar; HTTP sunucusu ve testler bu nesneyi kullanır."""
+import json
+
 from . import kayit, uyumluluk
+from .asistan import Asistan
 from .deploy import Deploylar
 from .github import GitHub, urllib_istek
 from .hata import Hata
 from .isler import Isler
+from .izleme import Izleme
 from .komut import Komut
 from .kurulum import Kurulum
 from .odoolar import Odoolar
@@ -12,6 +16,20 @@ from .staging import Staging
 from .webhook import Webhook
 from .yedek import Yedekler
 from .zipdepo import ZipDepo
+
+
+def _ceviri(deger):
+    """Odoo 16+ çevrilebilir alanı jsonb ({"en_US": ..., "tr_TR": ...}); eski sürümlerde düz metin."""
+    if not deger:
+        return ""
+    if isinstance(deger, str) and deger.startswith("{"):
+        try:
+            sozluk = json.loads(deger)
+        except ValueError:
+            return deger
+        if isinstance(sozluk, dict):
+            return sozluk.get("tr_TR") or sozluk.get("en_US") or next(iter(sozluk.values()), "")
+    return str(deger)
 
 
 class Servis:
@@ -29,6 +47,8 @@ class Servis:
         self.kurulum = Kurulum(ayar, self.komut, self.isler, self.ortamlar, self.odoolar)
         self.webhook = Webhook(ayar, self.odoolar, self.ortamlar, self.deploylar)
         self.zipdepo = ZipDepo(ayar, self.isler, self.ortamlar, self.odoolar, self.deploylar, self.github, self.webhook)
+        self.izleme = Izleme(ayar, self.komut, self.ortamlar, self.odoolar, self.deploylar)
+        self.asistan = Asistan(ayar, self.komut, self.ortamlar, self.odoolar, self.webhook)
 
     # ------------------------------------------------------------ özetler
     def odoo_ozeti(self, od, durum=False):
@@ -139,11 +159,38 @@ class Servis:
 
     # ------------------------------------------------------------ modüller ve loglar
     def moduller(self, odoo_id, ortam):
-        """Bu ortama özel modüller (depo ve ek klasör) ve kurulu olup olmadıkları."""
+        """Veritabanındaki bütün modüller. Bu ortama özel olanlar (depo, ek klasör) kaynağıyla işaretlenir;
+        klasörde olup veritabanının listesinde henüz olmayanlar da eklenir."""
         o = self.ortamlar.gerekli(odoo_id, ortam)
-        cikti = self.ortamlar.psql(o, "SELECT name || '|' || coalesce(latest_version, '') FROM ir_module_module "
-                                      "WHERE state = 'installed' ORDER BY 1;", kontrol=False)
-        kurulu = dict(s.split("|", 1) for s in cikti.splitlines() if "|" in s)
+        sql = ("SELECT coalesce(json_agg(json_build_object('ad', m.name, 'baslik', m.shortdesc::text, 'durum', m.state, "
+               "'surum', m.latest_version, 'yazar', m.author, 'uygulama', m.application, 'lisans', m.license, "
+               "'kategori', c.name::text) ORDER BY m.name), '[]') FROM ir_module_module m "
+               "LEFT JOIN ir_module_category c ON c.id = m.category_id;")
+        cikti = self.ortamlar.psql(o, sql, kontrol=False)
+        try:
+            db_moduller = json.loads(cikti.splitlines()[-1]) if cikti.strip() else []
+        except ValueError:
+            db_moduller = []
+        satirlar = {}
+        for m in db_moduller:
+            satirlar[m["ad"]] = {"ad": m["ad"], "baslik": _ceviri(m.get("baslik")) or m["ad"], "durum": m.get("durum"),
+                                 "kurulu": m.get("durum") == "installed", "kurulu_surum": m.get("surum"),
+                                 "yazar": m.get("yazar") or "", "uygulama": bool(m.get("uygulama")),
+                                 "lisans": m.get("lisans") or "", "kategori": _ceviri(m.get("kategori")) or "",
+                                 "kaynak": None}
+        for tur, klasor in self._ozel_klasorler(o):
+            for ad, (_yol, manifest) in uyumluluk.klasor_modulleri(klasor).items():
+                satir = satirlar.setdefault(ad, {"ad": ad, "baslik": manifest.get("name", ad), "durum": "listede-yok",
+                                                 "kurulu": False, "kurulu_surum": None, "yazar": manifest.get("author", ""),
+                                                 "uygulama": bool(manifest.get("application")),
+                                                 "lisans": manifest.get("license", ""), "kategori": manifest.get("category", "")})
+                satir.update(kaynak=tur, surum=manifest.get("version", ""),
+                             kurulamaz=manifest.get("installable", True) is False)
+        liste = sorted(satirlar.values(), key=lambda m: m["ad"])
+        return {"moduller": liste, "kurulu_sayisi": sum(1 for m in liste if m["kurulu"]),
+                "ozel_sayisi": sum(1 for m in liste if m.get("kaynak")), "commit": o.get("commit")}
+
+    def _ozel_klasorler(self, o):
         klasorler = []
         if o.get("yonetim") == "panel":
             if o.get("commit") and o.get("kod"):
@@ -152,14 +199,7 @@ class Servis:
                 klasorler.append(("ek", o["ek_addons"]))
         else:
             klasorler += [("ek", kaynak) for kaynak, _ in (o.get("kesif") or {}).get("kod_baglamalari", [])]
-        satirlar = []
-        for tur, klasor in klasorler:
-            for ad, (_yol, manifest) in uyumluluk.klasor_modulleri(klasor).items():
-                satirlar.append({"ad": ad, "baslik": manifest.get("name", ad), "surum": manifest.get("version", ""),
-                                 "kaynak": tur, "kurulu": ad in kurulu, "kurulu_surum": kurulu.get(ad),
-                                 "kurulamaz": manifest.get("installable", True) is False})
-        return {"moduller": sorted(satirlar, key=lambda m: m["ad"]), "kurulu_sayisi": len(kurulu),
-                "commit": o.get("commit")}
+        return klasorler
 
     def loglar(self, odoo_id, ortam, satir=300):
         o = self.ortamlar.gerekli(odoo_id, ortam)

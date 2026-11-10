@@ -406,6 +406,9 @@ a.hat-ortam:hover { border-color: var(--ort); border-top-color: var(--ort); }
 .erisim-serit { display: grid; grid-template-columns: repeat(30, minmax(0, 1fr)); gap: 2px; margin-top: .5rem; }
 .erisim-serit i { display: block; height: 22px; border-radius: 2px; background: #1fa971; opacity: .8; }
 .erisim-serit i.uyari { background: #d99a1c; opacity: 1; }
+.erisim-serit i.kirmizi { background: var(--kirmizi); opacity: 1; }
+.erisim-serit i.yok { background: var(--cizgi-g); opacity: 1; }
+.grafik-bos { display: flex; align-items: center; justify-content: center; height: 100%; text-align: center; }
 
 /* ---------- kayıt görüntüleyici ---------- */
 .kayit {
@@ -504,7 +507,18 @@ a.hat-ortam:hover { border-color: var(--ort); border-top-color: var(--ort); }
 #bildirimler { position: fixed; right: 1rem; bottom: 1rem; display: flex; flex-direction: column; gap: .4rem; z-index: 2147483000; max-width: min(420px, calc(100vw - 2rem)); pointer-events: none; }
 .bildirim { background: #1f2933; color: #fff; padding: .6rem .9rem; border-radius: 10px; box-shadow: var(--golge-b); font-size: .9rem; display: flex; gap: .5rem; align-items: flex-start; }
 .bildirim.kirmizi { background: #b42318; }
-.bildirim svg { margin-top: .15rem; }
+.bildirim.kalici { pointer-events: auto; }
+.bildirim svg { margin-top: .15rem; flex: none; }
+.bildirim-govde { flex: 1; min-width: 0; }
+.bildirim-metin { overflow-wrap: anywhere; }
+.bildirim details { margin-top: .4rem; }
+.bildirim summary { cursor: pointer; font-size: .82rem; opacity: .9; }
+.bildirim pre { margin: .35rem 0; max-height: 220px; overflow: auto; background: rgba(0,0,0,.25); padding: .5rem .6rem; border-radius: 6px; font-size: .75rem; white-space: pre-wrap; overflow-wrap: anywhere; }
+.bildirim-dugme, .bildirim-kapat { background: none; border: 0; color: inherit; cursor: pointer; display: inline-flex; align-items: center; gap: .3rem; font: inherit; font-size: .8rem; padding: .15rem .3rem; border-radius: 6px; }
+.bildirim-dugme:hover, .bildirim-kapat:hover { background: rgba(255,255,255,.15); }
+.bildirim-kapat svg { margin: 0; }
+.denetim-hata { display: block; color: var(--kirmizi); font-size: .82rem; margin-top: .2rem; overflow-wrap: anywhere; }
+.btn-baglanti { background: none; border: 0; padding: 0; margin-top: .2rem; color: var(--tur-metin, var(--tur)); cursor: pointer; text-decoration: underline; text-underline-offset: 2px; font: inherit; display: block; }
 
 /* ---------- daralan içerik ---------- */
 @media (max-width: 1320px) {
