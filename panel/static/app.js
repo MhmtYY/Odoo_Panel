@@ -62,6 +62,7 @@ const IKONLAR = {
     asistan: '<path d="M12 3l1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8z"/><path d="M19 16v4M17 18h4"/>',
     baglanti: '<path d="M9 7V3M15 7V3M7 7h10v4a5 5 0 0 1-10 0z"/><path d="M12 16v5"/>',
     log: '<path d="M8 6h13M8 12h13M8 18h13M3.5 6h.01M3.5 12h.01M3.5 18h.01"/>',
+    sablon: '<path d="M12 3l9 5-9 5-9-5 9-5z"/><path d="M3 13l9 5 9-5M3 17.5l9 5 9-5"/>',
     yedek: '<ellipse cx="12" cy="5.5" rx="8" ry="3"/><path d="M4 5.5v6c0 1.7 3.6 3 8 3s8-1.3 8-3v-6M4 11.5v6c0 1.7 3.6 3 8 3s8-1.3 8-3v-6"/>',
     modul: '<path d="M12 3l8 4.5v9L12 21l-8-4.5v-9z"/><path d="M4 7.5l8 4.5 8-4.5M12 12v9"/>',
     ayar: '<path d="M4 7h9M17 7h3M4 17h3M11 17h9"/><circle cx="15" cy="7" r="2"/><circle cx="9" cy="17" r="2"/>',
@@ -333,6 +334,8 @@ async function isBaslat(istek, baslik, secenek = {}) {
 /* ---------- menü ve yönlendirme ---------- */
 const PLATFORM_MENU = [
     { ad: "odoolar", baslik: "Platformlar", ikon: "odoolar" },
+    { ad: "sablonlar", baslik: "Şablonlar", ikon: "sablon", yetki: "kur" },
+    { ad: "yedekleme", baslik: "Yedekleme", ikon: "yedek", yetki: "izle" },
     { ad: "kullanicilar", baslik: "Kullanıcılar ve roller", ikon: "kullanici", yetki: "kullanicilar" },
     { ad: "denetim", baslik: "Denetim kaydı", ikon: "denetim", yetki: "izle" },
     { ad: "baglantilar", baslik: "Ajan bağlantıları", ikon: "baglanti" },
@@ -644,12 +647,18 @@ EYLEM["giris-bilgisi"] = (el) => dene(async () => {
 }, "Giriş bilgisi");
 
 /* ---------- Yeni Odoo kur ---------- */
+const SABLON_TUR = { veri: "Veriyle", moduller: "Yalnız modüller" };
 EYLEM["yeni-odoo"] = async () => {
-    pencereAc("Yeni Odoo kur", `<p class="soluk">${ikon("don", 14, 'class="donen"')} Şablon bilgisi alınıyor...</p>`);
+    pencereAc("Yeni Odoo kur", `<p class="soluk">${ikon("don", 14, 'class="donen"')} Seçenekler alınıyor...</p>`);
     const belirtec = pencereSayac;
-    const s = await dene(() => ajan.al("sablon"), "Şablon");
+    const s = await dene(() => ajan.al("kurulum-secenekleri"), "Kurulum seçenekleri");
     if (belirtec !== pencereSayac) return;
     const sablon = s && s.sablon;
+    const imajlar = (s && s.imajlar) || [];
+    const sablonlar = ((s && s.sablonlar) || []).filter((x) => x.imaj_var);
+    const imajSecenekleri = imajlar.map((x, i) => `<option value="${esc(x.imaj)}" data-tur="${esc(x.tur)}" ${i === 0 ? "selected" : ""}>${esc(x.ad)}</option>`).join("")
+        + (sablon ? `<option value="${esc(sablon.imaj)}" ${imajlar.length ? "" : "selected"}>Vekosis modül seti (test platformu imajı)</option>` : "")
+        + `<option value="diger" ${imajlar.length || sablon ? "" : "selected"}>Diğer imaj (elle yazılır)</option>`;
     pencereAc("Yeni Odoo kur", `
         <form data-form="yeni-odoo">
             <div class="form-izgara">
@@ -659,31 +668,168 @@ EYLEM["yeni-odoo"] = async () => {
             <p class="kucuk-yazi soluk uste-az">Adres: <code id="yeni-adres">ad.${esc(S.saglik ? S.saglik.alan : "panel.vekosis.com")}</code>. Küçük harfle başlar; küçük harf, rakam ve tire.</p>
             <h4 class="uste">Başlangıç</h4>
             <label class="secenek"><input type="radio" name="baslangic" value="bos" checked><span><strong>Boş Odoo</strong><small>Yalnız temel modül ve Türkçe. Modüller sonra depodan ya da Uygulamalar ekranından gelir.</small></span></label>
+            <label class="secenek ${sablonlar.length ? "" : "gizli"}"><input type="radio" name="baslangic" value="panel-sablon" ${sablonlar.length ? "" : "disabled"}><span><strong>Şablondan</strong><small>Bir platformdan alınmış şablonun kodu, imajı ve verisi ya da modülleriyle.</small></span></label>
             <label class="secenek ${sablon ? "" : "gizli"}"><input type="radio" name="baslangic" value="sablon" ${sablon ? "" : "disabled"}><span><strong>Test platformunun tam şablonu</strong><small>Bütün modüller kurulu ve ayarlı${sablon ? ` (<code>${esc(sablon.ad)}</code>)` : ""}.</small></span></label>
-            <label class="onay-satir uste-az ${sablon ? "" : "gizli"}" id="ornek-satir"><input type="checkbox" name="ornek" checked> Kurgusal örnek veriyle gelsin (müşteri Ayarlar'dan silebilir)</label>
-            <label class="alan uste">İmaj<input name="imaj" value="${esc(sablon ? sablon.imaj : "")}" required spellcheck="false" autocomplete="off" placeholder="vekosis/test20:20261108-1"></label>
-            <p class="soluk kucuk-yazi">Kurulumda yönetici şifresi üretilir ve bir kez gösterilir; sonradan "Giriş bilgisi" ile görülür.</p>
+            <label class="onay-satir uste-az gizli" id="ornek-satir"><input type="checkbox" name="ornek" checked> Kurgusal örnek veriyle gelsin (müşteri Ayarlar'dan silebilir)</label>
+            <div id="imaj-alani" class="uste">
+                <label class="alan">Odoo sürümü<select name="imaj_sec">${imajSecenekleri}</select></label>
+                <label class="alan uste-az gizli" id="imaj-elle">İmaj<input name="imaj" spellcheck="false" autocomplete="off" placeholder="vekosis/test20:20261108-1"></label>
+                <div id="imaj-uyari" class="uste-az"></div>
+            </div>
+            <div id="sablon-alani" class="uste gizli">
+                <label class="alan">Şablon<select name="sablon">${sablonlar.map((x) => `<option value="${esc(x.ad)}">${esc(x.baslik)} · ${esc(SABLON_TUR[x.tur] || x.tur)} · Odoo ${esc(x.seri || "-")}</option>`).join("")}</select></label>
+                <div id="sablon-bilgi" class="uste-az"></div>
+            </div>
+            <p class="soluk kucuk-yazi uste-az">Kurulumda yönetici şifresi üretilir ve bir kez gösterilir; sonradan "Giriş bilgisi" ile görülür.</p>
             <div class="dugmeler"><button class="btn birincil" type="submit">Kur</button><button class="btn" type="button" data-eylem="pencere-kapat">Vazgeç</button></div>
         </form>`);
     const f = $("#pencere-govde form");
     const alan = S.saglik ? S.saglik.alan : "panel.vekosis.com";
     f.elements.id.addEventListener("input", () => { $("#yeni-adres").textContent = `${f.elements.id.value || "ad"}.${alan}`; });
-    f.addEventListener("change", () => {
-        const sab = f.elements.baslangic.value === "sablon";
-        if (sab && sablon) f.elements.imaj.value = sablon.imaj;
-        f.elements.imaj.readOnly = sab;
-    });
+    const guncelle = () => {
+        const bas = f.elements.baslangic.value;
+        const elle = f.elements.imaj_sec.value === "diger";
+        $("#imaj-alani").classList.toggle("gizli", bas !== "bos");
+        $("#sablon-alani").classList.toggle("gizli", bas !== "panel-sablon");
+        $("#ornek-satir").classList.toggle("gizli", bas !== "sablon");
+        $("#imaj-elle").classList.toggle("gizli", !elle);
+        f.elements.imaj.required = bas === "bos" && elle;
+        const secili = f.elements.imaj_sec.selectedOptions[0];
+        $("#imaj-uyari").innerHTML = secili && secili.dataset.tur === "enterprise"
+            ? uyariKutu("sari", "Enterprise sürümü için müşterinin Odoo Enterprise aboneliği gerekir. Abonelik kodu girilmezse veritabanı deneme süresi sonunda kilitlenir.") : "";
+        const sb = sablonlar.find((x) => x.ad === f.elements.sablon.value);
+        $("#sablon-bilgi").innerHTML = sb ? `<p class="soluk kucuk-yazi">Kaynak: ${esc(sb.kaynak_firma || sb.kaynak_odoo)} (${esc(ortamAdi(sb.kaynak_ortam))}) · ${esc(sb.modul_sayisi)} modül${sb.aciklama ? ` · ${esc(sb.aciklama)}` : ""}</p>
+            ${sb.tur === "veri" ? uyariKutu("sari", "Şablonun verisi yeni platforma kopyalanır. Yönetici dışındaki kullanıcılar pasif gelir.") : ""}` : "";
+    };
+    f.addEventListener("change", guncelle);
+    guncelle();
 };
 FORM["yeni-odoo"] = async (f) => {
-    const govde = {
-        id: f.elements.id.value.trim(), firma: f.elements.firma.value.trim(), baslangic: f.elements.baslangic.value,
-        ornek: f.elements.ornek.checked, imaj: f.elements.imaj.value.trim(),
-    };
+    const baslangic = f.elements.baslangic.value;
+    const secilen = f.elements.imaj_sec.value;
+    const govde = { id: f.elements.id.value.trim(), firma: f.elements.firma.value.trim(), baslangic, ornek: f.elements.ornek.checked };
+    if (baslangic === "panel-sablon") govde.sablon = f.elements.sablon.value;
+    if (baslangic === "bos") govde.imaj = secilen === "diger" ? f.elements.imaj.value.trim() : secilen;
     await isBaslat(() => ajan.gonder("odoolar", govde), `Kuruluyor: ${govde.id}`, {
         kapanis: (k) => (k.durum === "tamam" ? `<button class="btn birincil" data-eylem="giris-bilgisi" data-odoo="${esc(govde.id)}">Giriş bilgisini göster</button>
             <a class="btn" href="${odooRota(govde.id)}" data-eylem="pencere-kapat-git">Platforma git</a>` : ""),
     });
 };
+
+/* ---------- Şablonlar ---------- */
+PLATFORM.sablonlar = async () => {
+    const v = await ajan.al("sablonlar");
+    const silebilir = yetkili("sablon") && tumKapsam();
+    return [`
+    <div class="baslik-satiri"><div><p class="ust-etiket">Panel</p><h1>Şablonlar</h1>
+        <p class="soluk">Bir platformdan alınmış kopyalar. Yeni Odoo kurarken "Şablondan" seçilir. Şablon oluşturmak için platformun Ayarlar sekmesine gidin.</p></div></div>
+    ${v.sablonlar.length ? `<div class="kart tablo-kap"><table class="tablo kartli">
+        <thead><tr><th>Şablon</th><th>Tür</th><th>Kaynak</th><th>Sürüm</th><th>Boyut</th><th>Tarih</th><th class="sag"></th></tr></thead>
+        <tbody>${v.sablonlar.map((s) => `<tr>
+            <td><span class="ana-yazi">${esc(s.baslik)}</span><small><code>${esc(s.ad)}</code>${s.aciklama ? ` · ${esc(s.aciklama)}` : ""}</small>${s.imaj_var ? "" : `<small style="color:var(--kirmizi)">İmajı sunucuda yok, kullanılamaz: <code>${esc(s.imaj)}</code></small>`}</td>
+            <td data-etiket="Tür">${esc(SABLON_TUR[s.tur] || s.tur)}<small class="soluk">${esc(s.modul_sayisi)} modül</small></td>
+            <td data-etiket="Kaynak">${esc(s.kaynak_firma || s.kaynak_odoo)}<small class="soluk">${esc(ortamAdi(s.kaynak_ortam))}</small></td>
+            <td data-etiket="Sürüm"><span class="rozet surum">${esc(s.seri || "-")}</span></td>
+            <td data-etiket="Boyut" class="kirilmaz">${esc(boyutMb(s.boyut / 1048576))}</td>
+            <td data-etiket="Tarih" class="kirilmaz">${esc(tarihSaat(s.tarih))}${s.olusturan ? `<small class="soluk">${esc(s.olusturan)}</small>` : ""}</td>
+            <td class="sag">${silebilir ? `<button class="btn kucuk tehlike-cizgi" data-eylem="sablon-sil" data-ad="${esc(s.ad)}" data-baslik="${esc(s.baslik)}">Sil</button>` : ""}</td></tr>`).join("")}</tbody>
+    </table></div>` : bosDurum("Henüz şablon yok", "Bir platformun Ayarlar sekmesinden şablon oluşturabilirsiniz.", "", "sablon")}`];
+};
+EYLEM["sablon-sil"] = (el) => onayPenceresi({
+    baslik: "Şablonu sil", metin: `<strong>${esc(el.dataset.baslik)}</strong> silinir. Bu şablondan kurulmuş platformlar etkilenmez.`,
+    dugme: "Sil", tehlike: true, tur: "kirmizi",
+    evet: async () => { const v = await dene(() => ajan.gonder(`sablonlar/${el.dataset.ad}/sil`), "Şablon"); pencereKapat(); if (v) { bildir("Şablon silindi."); ciz({ sessiz: true }); } },
+});
+EYLEM["sablon-olustur"] = (el) => {
+    const { odoo, ortam } = el.dataset;
+    pencereAc("Şablon oluştur", `
+        <form data-form="sablon-olustur" data-odoo="${esc(odoo)}" data-ortam="${esc(ortam)}">
+            <p class="soluk kucuk-yazi">${esc(el.dataset.firma)} (${esc(ortamAdi(ortam))}) kopyalanır. Platform çalışmaya devam eder, hiçbir şeyi değişmez.</p>
+            <div class="form-izgara uste-az">
+                <label class="alan">Şablon adı<input name="ad" required pattern="[a-z][a-z0-9\\-]{1,38}[a-z0-9]" maxlength="40" autocomplete="off" spellcheck="false" autofocus placeholder="imalat-temel"></label>
+                <label class="alan">Başlık<input name="baslik" maxlength="80" autocomplete="off" placeholder="İmalat firması başlangıç paketi"></label>
+            </div>
+            <label class="alan uste-az">Açıklama<input name="aciklama" maxlength="300" autocomplete="off"></label>
+            <h4 class="uste">Ne alınsın?</h4>
+            <label class="secenek"><input type="radio" name="tur" value="moduller" checked><span><strong>Yalnız modüller</strong><small>Kurulu modül listesi, kod ve imaj. Yeni platform boş veritabanıyla açılıp aynı modülleri kurar; ayarlar gelmez.</small></span></label>
+            <label class="secenek"><input type="radio" name="tur" value="veri"><span><strong>Veriyle</strong><small>Ayarlar, ana veriler ve belgelerle tam kopya. Posta sunucuları, e-Belge ve entegrasyon anahtarları silinir; yönetici dışındaki kullanıcılar pasif olur, şifreler silinir.</small></span></label>
+            <div id="sablon-veri-uyari" class="uste-az gizli">
+                ${uyariKutu("kirmizi", "Şablon platformun bütün verisini taşır (kişiler, belgeler, faturalar). Gerçek müşteri verisi olan platformdan veriyle şablon almayın: bir müşterinin verisi başka müşteriye geçmemeli.")}
+                <label class="onay-satir uste-az"><input type="checkbox" name="onay"> Bu platformda gerçek müşteri verisi yok</label>
+            </div>
+            <div class="dugmeler"><button class="btn birincil" type="submit">Oluştur</button><button class="btn" type="button" data-eylem="pencere-kapat">Vazgeç</button></div>
+        </form>`);
+    const f = $("#pencere-govde form");
+    f.addEventListener("change", () => {
+        const veri = f.elements.tur.value === "veri";
+        $("#sablon-veri-uyari").classList.toggle("gizli", !veri);
+        f.elements.onay.required = veri;
+    });
+};
+FORM["sablon-olustur"] = async (f) => {
+    const govde = { ad: f.elements.ad.value.trim(), baslik: f.elements.baslik.value.trim(), aciklama: f.elements.aciklama.value.trim(),
+        tur: f.elements.tur.value, onay: f.elements.onay.checked };
+    await isBaslat(() => ajan.gonder(`odoolar/${f.dataset.odoo}/${f.dataset.ortam}/sablon`, govde), `Şablon: ${govde.ad}`, {
+        kapanis: (k) => (k.durum === "tamam" ? `<a class="btn birincil" href="#/sablonlar" data-eylem="pencere-kapat-git">Şablonlara git</a>` : ""),
+    });
+};
+
+/* ---------- Yedekleme ---------- */
+const PERIYOT_ADI = { 0: "Kapalı", 6: "6 saatte bir", 12: "12 saatte bir", 24: "Günde bir", 48: "2 günde bir", 168: "Haftada bir" };
+function planSaatleri(p) {
+    if (!p.periyot_saat) return "";
+    const adim = Math.min(p.periyot_saat, 24);
+    const saatler = [];
+    for (let h = 0; h < 24; h += adim) saatler.push((p.saat + h) % 24);
+    return saatler.sort((a, b) => a - b).map((h) => `${iki(h)}:20`).join(", ");
+}
+function planMetni(p) {
+    if (!p.periyot_saat) return `Otomatik yedek kapalı; var olan otomatik yedekler ${p.saklama_gun} gün saklanır.`;
+    const ek = p.periyot_saat === 48 ? " (iki günde bir)" : p.periyot_saat === 168 ? " (ilk yedekten başlayarak 7 günde bir)" : "";
+    return `${PERIYOT_ADI[p.periyot_saat]}, saat ${planSaatleri(p)}${ek}; ${p.saklama_gun} gün saklanır.`;
+}
+function planAlanlari(p) {
+    return `<div class="form-izgara">
+        <label class="alan">Sıklık<select name="periyot_saat">${Object.entries(PERIYOT_ADI).map(([d, ad]) => `<option value="${d}" ${Number(d) === p.periyot_saat ? "selected" : ""}>${esc(ad)}</option>`).join("")}</select></label>
+        <label class="alan">Saat<select name="saat">${Array.from({ length: 24 }, (_, h) => `<option value="${h}" ${h === p.saat ? "selected" : ""}>${iki(h)}:20</option>`).join("")}</select></label>
+        <label class="alan">Kaç gün saklansın<input name="saklama_gun" type="number" min="1" max="365" required value="${esc(p.saklama_gun)}"></label>
+    </div>`;
+}
+const planGovdesi = (f) => ({ periyot_saat: Number(f.elements.periyot_saat.value), saat: Number(f.elements.saat.value), saklama_gun: Number(f.elements.saklama_gun.value) });
+function sonYedekMetni(o) {
+    if (!o) return "-";
+    return `${o.son ? `Son: ${esc(goreli(o.son))}` : "Henüz otomatik yedek yok"}${o.sonraki ? ` · Sonraki: ${esc(tarihSaat(o.sonraki))}` : ""}`;
+}
+PLATFORM.yedekleme = async () => {
+    const v = await ajan.al("yedek-plani");
+    const genelDuzenler = yetkili("yedekPlani") && tumKapsam();
+    return [`
+    <div class="baslik-satiri"><div><p class="ust-etiket">Panel</p><h1>Yedekleme</h1>
+        <p class="soluk">Otomatik yedeklerin sıklığı ve kaç gün saklanacağı. Genel plan bütün platformlara uygulanır; bir platformda ayrıca değiştirilirse o platformun planı geçerli olur. Elle, deploy öncesi ve silinmeden önce alınan yedekler bu plandan bağımsızdır.</p></div></div>
+    <section class="kart kart-ic">
+        <div class="kart-baslik"><h2>Genel plan</h2></div>
+        ${genelDuzenler ? `<form data-form="yedek-plani-genel">${planAlanlari(v.genel)}
+            <p class="soluk kucuk-yazi uste-az">Saklama süresini aşan otomatik yedekler silinir; her ortamın en yeni otomatik yedeği her zaman kalır.</p>
+            <div class="dugmeler"><button class="btn birincil" type="submit">Kaydet</button></div></form>`
+            : `<p>${esc(planMetni(v.genel))}</p>`}
+    </section>
+    <div class="kart tablo-kap uste"><table class="tablo kartli">
+        <thead><tr><th>Platform</th><th>Plan</th><th>Production</th><th>Staging</th><th class="sag"></th></tr></thead>
+        <tbody>${v.platformlar.map((p) => `<tr>
+            <td class="ana-yazi">${esc(p.firma || p.id)}<small><code>${esc(p.id)}</code></small></td>
+            <td data-etiket="Plan"><span class="rozet ${p.ozel ? "islem" : ""}">${p.ozel ? "Bu platforma özel" : "Genel plan"}</span><small>${esc(planMetni(p.gecerli))}</small></td>
+            <td data-etiket="Production" class="kucuk-yazi">${sonYedekMetni(p.ortamlar.production)}</td>
+            <td data-etiket="Staging" class="kucuk-yazi">${p.ortamlar.staging ? sonYedekMetni(p.ortamlar.staging) : `<span class="soluk">Yok</span>`}</td>
+            <td class="sag"><a class="btn kucuk" href="${odooRota(p.id, "production", "yedekler")}">Yedekler</a></td></tr>`).join("")
+            || `<tr><td colspan="5" class="soluk">Platform yok.</td></tr>`}</tbody>
+    </table></div>`];
+};
+FORM["yedek-plani-genel"] = async (f) => {
+    const v = await dene(() => ajan.gonder("yedek-plani", planGovdesi(f)), "Yedek planı");
+    if (v) { bildir("Genel yedek planı kaydedildi."); ciz({ sessiz: true }); }
+};
+
+/* ---------- pencereden sayfaya ---------- */
 EYLEM["pencere-kapat-git"] = (el) => { pencereKapat(); git(el.getAttribute("href")); };
 
 /* ---------- Mevcut Odoo'yu bağla ---------- */
@@ -841,6 +987,7 @@ const OLAY_ADI = [
     [/\/geri-yukle$/, "Geri yükleme"], [/\/staging\/olustur$/, "Staging oluşturma"], [/\/staging\/yenile$/, "Staging yenileme"],
     [/\/staging\/sil$/, "Staging silme"], [/\/yedek-staging$/, "Yedeği staging'de açma"], [/\/zip$/, "Zip yükleme"],
     [/\/depo$/, "Depo bağlama"], [/\/depo\/kaldir$/, "Depo bağlantısını kaldırma"], [/\/(durdur|baslat)$/, "Durdurma / başlatma"],
+    [/yedek-plani$/, "Yedek planını değiştirme"], [/\/sablon$/, "Şablon oluşturma"], [/^POST sablonlar\//, "Şablon silme"],
     [/\/sil$/, "Platform silme"], [/^POST bagla$/, "Mevcut Odoo'yu bağlama"], [/^INDIRDI/, "Yedek indirme"], [/^WEBHOOK/, "GitHub webhook"],
     [/\/islemler$/, "Durdurma / başlatma iznini değiştirme"], [/\/deploy-anahtari$/, "Deploy anahtarı üretme"],
     [/^KENDI SIFRESINI DEGISTIRDI$/, "Kendi şifresini değiştirme"], [/^SIFRE SIFIRLADI/, "Şifre sıfırlama"],
@@ -890,7 +1037,7 @@ const DEPLOY_DURUM = {
 };
 const TETIK = { webhook: ["webhook", "webhook"], elle: ["elle", "el"], geri: ["geri alma", "geri"], zip: ["zip", "yukle"] };
 const YEDEK_ETIKET = {
-    GECE: "Gece", ELLE: "Elle", "DEPLOY-ONCESI": "Deploy öncesi", "YENILEME-ONCESI": "Yenileme öncesi",
+    OTOMATIK: "Otomatik", GECE: "Gece", ELLE: "Elle", "DEPLOY-ONCESI": "Deploy öncesi", "YENILEME-ONCESI": "Yenileme öncesi",
     "GERI-YUKLEME-ONCESI": "Geri yükleme öncesi", "GERI-ALMA-ONCESI": "Geri alma öncesi", "SILINMEDEN-ONCE": "Silinmeden önce",
 };
 const ortamAdi = (ad) => (ad === "production" ? "Production" : "Staging");
@@ -1100,11 +1247,16 @@ function bekleyenKart(od, ortamAd, ort) {
     </div>`;
 }
 const BAGLANTI_ADI = { app: "GitHub App", anahtar: "Deploy key (salt okunur)", acik: "Herkese açık depo" };
+/* Sunucuda GitHub App tanımlı değil mi? Sağlık bilgisi alınamadıysa bilinmiyor sayılır (false). */
+const appYok = () => !!(S.saglik && !S.saglik.app);
+const appYokUyarisi = (od) => uyariKutu("kirmizi", `Bu depo GitHub App ile bağlı ama sunucuda GitHub App tanımlı değil; depo çekilemez, deploy çalışmaz.
+    ${yetkili("github") && od.tur === "panel" ? `<a href="${odooRota(od.id, "production", "ayarlar")}">Ayarlar &gt; Kod deposu</a> bölümünde <strong>Değiştir</strong> ile bağlantıyı Deploy key yapın.` : "Panel yöneticisi bağlantıyı Deploy key yapmalı."}`);
 function depoKart(od, ortamAd) {
     const d = od.depo;
     const kip = d.kip[ortamAd];
     return `<div class="kart kart-ic">
         <div class="kart-baslik"><h3 style="display:flex;gap:.4rem;align-items:center">${ikon("github", 16)}Kod deposu</h3>${yetkili("github") && od.tur === "panel" ? `<a class="btn kucuk" href="${odooRota(od.id, ortamAd, "ayarlar")}">Ayarlar</a>` : ""}</div>
+        ${d.baglanti === "app" && appYok() ? appYokUyarisi(od) : ""}
         <div class="bilgi-satir"><span>Depo</span><a href="https://github.com/${esc(d.ad)}" target="_blank" rel="noopener noreferrer"><code>${esc(d.ad)}</code></a></div>
         <div class="bilgi-satir"><span>Dal</span><code>${esc(d.dallar[ortamAd] || "-")}</code></div>
         <div class="bilgi-satir"><span>Bağlantı</span><span class="deger">${esc(BAGLANTI_ADI[d.baglanti] || d.baglanti)}</span></div>
@@ -1404,17 +1556,23 @@ DEGIS["log-satir"] = (el) => { LOG.satir = el.value; ciz(); };
 
 /* ---------- Yedekler ---------- */
 ODOO_SEKME.yedekler = async (od, ortamAd, ort) => {
-    const v = await ajan.al(`odoolar/${od.id}/${ortamAd}/yedekler`);
+    const [v, plan] = await Promise.all([ajan.al(`odoolar/${od.id}/${ortamAd}/yedekler`), ajan.al(`odoolar/${od.id}/yedek-plani`)]);
     const geriYukle = yetkili("geriYukle") && panelOrtami(ort);
     return [`<div class="baslik-satiri">
-        <div><h2>Yedekler</h2><p class="soluk">Her yedek veritabanı ve dosya deposunu içerir. Gece yedeği 04:20'de alınır (son 7); deploy, yenileme ve geri yükleme öncesinde otomatik yedek alınır. Silinmeden önce alınan yedek hiç silinmez.</p></div>
+        <div><h2>Yedekler</h2><p class="soluk">Her yedek veritabanı ve dosya deposunu içerir. Deploy, yenileme ve geri yükleme öncesinde de yedek alınır. Silinmeden önce alınan yedek hiç silinmez.</p></div>
         <div class="dugmeler" style="margin:0"><button class="btn birincil" data-eylem="yedek-al" data-odoo="${esc(od.id)}" data-ortam="${ortamAd}">${ikon("artik", 14)}Yedek al</button></div></div>
+    <div class="kart kart-ic uste-az">
+        <div class="kart-baslik"><h3>Otomatik yedek</h3><span class="rozet ${plan.ozel ? "islem" : ""}">${plan.ozel ? "Bu platforma özel" : "Genel plan"}</span></div>
+        <p>${esc(planMetni(plan.gecerli))}</p>
+        <p class="soluk kucuk-yazi">${sonYedekMetni(plan.ortamlar[ortamAd])}</p>
+        ${yetkili("yedekPlani") ? `<div class="dugmeler"><button class="btn kucuk" data-eylem="yedek-plani-degistir" data-odoo="${esc(od.id)}">Değiştir</button></div>` : ""}
+    </div>
     ${!panelOrtami(ort) ? uyariKutu("gri", "Bağlanan kurulumun yedeği panelin kendi klasöründe tutulur; kurulumun kendi yedeklerine dokunulmaz. Panelden bu kuruluma geri yükleme kapalı; yedeği staging'de açabilirsiniz.") : ""}
     <div class="kart tablo-kap uste-az"><table class="tablo kartli">
         <thead><tr><th>Tarih</th><th>Tür</th><th>Kod</th><th>Boyut</th><th class="sag">İşlemler</th></tr></thead>
         <tbody>${v.yedekler.length ? v.yedekler.map((y) => `<tr>
             <td class="ana-yazi">${esc(tarihSaat(y.tarih))}<small>${esc(goreli(y.tarih))}</small></td>
-            <td data-etiket="Tür"><span class="rozet ${y.etiket === "GECE" ? "" : y.etiket === "SILINMEDEN-ONCE" ? "uyari" : "islem"}">${esc(YEDEK_ETIKET[y.etiket] || y.etiket)}</span></td>
+            <td data-etiket="Tür"><span class="rozet ${y.etiket === "GECE" || y.etiket === "OTOMATIK" ? "" : y.etiket === "SILINMEDEN-ONCE" ? "uyari" : "islem"}">${esc(YEDEK_ETIKET[y.etiket] || y.etiket)}</span></td>
             <td data-etiket="Kod">${y.commit ? `<span class="hash">${esc(kisa(y.commit))}</span>` : `<span class="soluk">-</span>`}</td>
             <td data-etiket="Boyut" class="kirilmaz">${esc(boyutBayt(y.boyut))}</td>
             <td class="sag"><div class="islemler">
@@ -1423,6 +1581,24 @@ ODOO_SEKME.yedekler = async (od, ortamAd, ort) => {
                 ${geriYukle ? `<button class="btn kucuk" data-eylem="yedek-geri" data-odoo="${esc(od.id)}" data-ortam="${ortamAd}" data-dosya="${esc(y.dosya)}" data-adres="${esc(alanAdi(ort.adres))}">Geri yükle</button>` : ""}
             </div></td></tr>`).join("") : `<tr><td colspan="5" class="soluk">Henüz yedek yok.</td></tr>`}</tbody>
     </table></div>`];
+};
+EYLEM["yedek-plani-degistir"] = async (el) => {
+    const plan = await dene(() => ajan.al(`odoolar/${el.dataset.odoo}/yedek-plani`), "Yedek planı");
+    if (!plan) return;
+    pencereAc("Otomatik yedek planı", `
+        <form data-form="yedek-plani-platform" data-odoo="${esc(el.dataset.odoo)}">
+            <label class="secenek"><input type="radio" name="kaynak" value="genel" ${plan.ozel ? "" : "checked"}><span><strong>Genel planı kullan</strong><small>${esc(planMetni(plan.genel))} Genel plan değişirse bu platform da değişir.</small></span></label>
+            <label class="secenek"><input type="radio" name="kaynak" value="ozel" ${plan.ozel ? "checked" : ""}><span><strong>Bu platforma özel plan</strong><small>Production ve staging ortamlarına uygulanır.</small></span></label>
+            <div id="ozel-plan" class="uste-az ${plan.ozel ? "" : "gizli"}">${planAlanlari(plan.ozel || plan.genel)}</div>
+            <div class="dugmeler"><button class="btn birincil" type="submit">Kaydet</button><button class="btn" type="button" data-eylem="pencere-kapat">Vazgeç</button></div>
+        </form>`);
+    const f = $("#pencere-govde form");
+    f.addEventListener("change", () => $("#ozel-plan").classList.toggle("gizli", f.elements.kaynak.value !== "ozel"));
+};
+FORM["yedek-plani-platform"] = async (f) => {
+    const govde = { ozel: f.elements.kaynak.value === "ozel" ? planGovdesi(f) : null };
+    const v = await dene(() => ajan.gonder(`odoolar/${f.dataset.odoo}/yedek-plani`, govde), "Yedek planı");
+    if (v) { pencereKapat(); bildir("Yedek planı kaydedildi."); ciz({ sessiz: true }); }
 };
 EYLEM["yedek-al"] = (el) => isBaslat(() => ajan.gonder(`odoolar/${el.dataset.odoo}/${el.dataset.ortam}/yedek`), `${ortamAdi(el.dataset.ortam)} yedeği`);
 EYLEM["yedek-staging"] = (el) => onayPenceresi({
@@ -1556,6 +1732,13 @@ ODOO_SEKME.ayarlar = async (od, ortamAd) => {
                 <button class="btn kucuk tehlike-cizgi" data-eylem="staging-sil" data-odoo="${esc(od.id)}" data-adres="${esc(alanAdi(st.adres))}">Kaldır</button></div>
         </section>`);
     }
+    if (yetkili("sablon") && od.ortamlar[ortamAd]) {
+        bolumler.push(`<section class="kart kart-ic">
+            <h2 style="margin-bottom:.35rem">Şablon</h2>
+            <div class="anahtar-satir"><div>Bu ortamdan şablon oluştur<small>${esc(ortamAdi(ortamAd))} ortamının kodu, modülleri ve isteğe bağlı verisi saklanır; yeni platformlar bundan kurulur.</small></div>
+                <button class="btn kucuk" data-eylem="sablon-olustur" data-odoo="${esc(od.id)}" data-ortam="${esc(ortamAd)}" data-firma="${esc(od.firma)}">Şablon oluştur</button></div>
+        </section>`);
+    }
     if (od.tur === "panel" && yetkili("sil")) {
         bolumler.push(`<section class="kart kart-ic" style="border-color:var(--kirmizi)">
             <h2 style="color:var(--kirmizi)">Bu platformu sil</h2>
@@ -1592,8 +1775,11 @@ EYLEM["baglanti-kaldir"] = (el) => onayPenceresi({
 });
 function depoBolum(od) {
     const d = od.depo;
-    const appYok = S.saglik && !S.saglik.app;
+    const yok = appYok();
+    // App yoksa öntanımlı Deploy key; App ile bağlı eski kayıtta da "Değiştir" Deploy key ile açılır.
+    const secili = d ? (d.baglanti === "app" && yok ? "anahtar" : d.baglanti) : (yok ? "anahtar" : "app");
     const bilgi = d ? `
+        ${d.baglanti === "app" && yok ? appYokUyarisi(od) : ""}
         <div class="bilgi-satir"><span>Depo</span><a href="https://github.com/${esc(d.ad)}" target="_blank" rel="noopener noreferrer"><code>${esc(d.ad)}</code></a></div>
         <div class="bilgi-satir"><span>Bağlantı</span><span class="deger">${esc(BAGLANTI_ADI[d.baglanti] || d.baglanti)}</span></div>
         ${Object.entries(d.dallar).map(([o, dal]) => `<div class="bilgi-satir"><span>${ortamAdi(o)} dalı</span><span class="deger"><code>${esc(dal)}</code> · ${d.kip[o] === "webhook" ? "otomatik" : "elle"}</span></div>`).join("")}
@@ -1606,7 +1792,10 @@ function depoBolum(od) {
             <div class="form-izgara">
                 <label class="alan">Depo (sahip/depo)<input name="ad" required value="${esc(d ? d.ad : "")}" placeholder="vekosis/ornek-addons" spellcheck="false" autocomplete="off"></label>
                 <label class="alan">Bağlantı<select name="baglanti">
-                    ${["app", "anahtar", "acik"].map((b) => `<option value="${b}" ${(d ? d.baglanti : "app") === b ? "selected" : ""}>${esc(BAGLANTI_ADI[b])}</option>`).join("")}</select></label>
+                    ${["app", "anahtar", "acik"].map((b) => {
+                        const kapali = b === "app" && yok;
+                        return `<option value="${b}" ${secili === b ? "selected" : ""} ${kapali ? "disabled" : ""}>${esc(BAGLANTI_ADI[b])}${kapali ? " (sunucuda tanımlı değil)" : ""}</option>`;
+                    }).join("")}</select></label>
                 <label class="alan">Production dalı<input name="dal_production" required value="${esc(d ? d.dallar.production : "main")}" spellcheck="false"></label>
                 <label class="alan">Staging dalı (isteğe bağlı)<input name="dal_staging" value="${esc(d && d.dallar.staging ? d.dallar.staging : "")}" placeholder="staging" spellcheck="false"></label>
             </div>
@@ -1622,7 +1811,7 @@ function depoBolum(od) {
             <div class="dugmeler"><button class="btn birincil" type="submit">${d ? "Kaydet" : "Bağla"}</button>
                 <button class="btn ${d ? "" : "gizli"}" type="button" data-eylem="depo-form-kapat">Vazgeç</button></div>
         </form>
-        ${appYok ? `<p class="soluk kucuk-yazi uste-az">Sunucuda GitHub App bilgisi tanımlı değil; App ile bağlı depoda deploy ve zip yüklemesi çalışmaz.</p>` : ""}
+        ${yok ? `<p class="soluk kucuk-yazi uste-az">Sunucuda GitHub App tanımlı değil, bu yüzden App seçeneği kapalı. Deploy için Deploy key yeter; zip yüklemesi ve PR için App gerekir.</p>` : ""}
     </section>`;
 }
 function depoFormuBagla(od) {
@@ -1860,7 +2049,7 @@ PLATFORM.baglantilar = async () => {
                 <td data-etiket="Oluşturma" class="kirilmaz">${esc(tarihSaat(zamanMs(b.olusturma)))}</td>
                 <td data-etiket="Son kullanım" class="kirilmaz">${b.son_kullanim ? esc(goreli(zamanMs(b.son_kullanim))) : "-"}</td>
                 <td data-etiket="Bitiş" class="kirilmaz">${b.bitis ? esc(tarihSaat(zamanMs(b.bitis))) : b.tur === "oauth" ? "yenilendikçe" : "süresiz"}</td>
-                <td class="sag"><button class="btn kucuk tehlike-cizgi" data-eylem="baglanti-kaldir" data-id="${esc(b.id)}" data-ad="${esc(b.ad || "")}">Kaldır</button></td></tr>`).join("")
+                <td class="sag"><button class="btn kucuk tehlike-cizgi" data-eylem="ajan-baglanti-kaldir" data-id="${esc(b.id)}" data-ad="${esc(b.ad || "")}">Kaldır</button></td></tr>`).join("")
                 || `<tr><td colspan="6" class="soluk">Henüz bağlantı yok.</td></tr>`}</tbody></table></div>
         <div class="kart kart-ic"><h3>Ajanın kullanabileceği araçlar</h3>
             <p class="soluk kucuk-yazi">Rolünüze göre. Yazan araçları ajan istemcisi çalıştırmadan önce size sorar.</p>
@@ -1900,8 +2089,8 @@ EYLEM["asistan-anahtar-sil"] = () => onayPenceresi({
     dugme: "Sil", tehlike: true, tur: "kirmizi",
     evet: async () => { const v = await dene(() => api("POST", "/api/baglantilar/asistan-ayar", { anahtar: "" }), "Asistan ayarı"); pencereKapat(); if (v) ciz({ sessiz: true }); },
 });
-EYLEM["baglanti-kaldir"] = (el) => onayPenceresi({
-    baslik: "Bağlantıyı kaldır", metin: `<strong>${esc(el.dataset.ad || "Bu bağlantı")}</strong> artık panele erişemez.`,
+EYLEM["ajan-baglanti-kaldir"] = (el) => onayPenceresi({
+    baslik: "Ajan bağlantısını kaldır", metin: `<strong>${esc(el.dataset.ad || "Bu bağlantı")}</strong> artık panele erişemez.`,
     dugme: "Kaldır", tehlike: true, tur: "kirmizi",
     evet: async () => { const v = await dene(() => api("POST", `/api/baglantilar/${el.dataset.id}/sil`, {}), "Bağlantı"); pencereKapat(); if (v) { bildir("Bağlantı kaldırıldı."); ciz({ sessiz: true }); } },
 });

@@ -65,6 +65,9 @@ class Odoolar:
             raise Hata(400, "Depo yalnız panelin kurduğu Odoo'lara bağlanır.")
         ad = depo_denetle(govde.get("ad"))
         baglanti = str(govde.get("baglanti") or "app")
+        if baglanti == "app" and not (self.github and self.github.app_var()):
+            raise Hata(400, "Sunucuda GitHub App tanımlı değil. Bağlantı olarak Deploy key ya da Herkese açık depo "
+                            "seçin; zip yüklemesi ve PR için önce GitHub App tanımlanmalı.")
         dallar = govde.get("dallar") or {}
         kip = govde.get("kip") or {}
         bilgi = {

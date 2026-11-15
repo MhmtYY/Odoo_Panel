@@ -10,7 +10,6 @@ from types import SimpleNamespace
 from urllib.parse import parse_qs, urlencode, urlsplit
 
 from panel import asistan
-from panel import panel as P
 
 from . import test_panel as tp
 
@@ -52,6 +51,15 @@ class McpTesti(unittest.TestCase):
             return h.code, h.read().decode(), h.headers
 
     # -- testler
+    def test_erken_hata_yanitinda_govde_okunur(self):
+        """Jetonsuz istekte de gövde okunur: istemci bağlantı sıfırlanması değil 401 alır (claude.ai ilk isteği jetonsuz atar)."""
+        for _ in range(3):
+            kod, _, basliklar = self.mcp(None, "initialize", {"dolgu": "x" * 1_000_000})
+            self.assertEqual(kod, 401)
+            self.assertIn("resource_metadata", basliklar["WWW-Authenticate"])
+        kod, _, _ = self.ham("POST", "/api/ajan/odoolar", b"{" + b" " * 500_000 + b"}", {"Content-Type": "application/json"})
+        self.assertEqual(kod, 401)
+
     def test_jetonsuz_istek_kesif_belgesini_gosterir(self):
         kod, veri, basliklar = self.mcp(None, "initialize")
         self.assertEqual(kod, 401)

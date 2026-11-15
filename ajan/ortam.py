@@ -366,6 +366,31 @@ REVOKE CONNECT ON DATABASE "{db}" FROM PUBLIC;
         kayit.yaz(onbellek, bilgi)
         return bilgi
 
+    def imaj_etiketleri(self, imaj):
+        sonuc = self.komut.calistir(["docker", "image", "inspect", "-f", "{{json .Config.Labels}}", imaj], kontrol=False,
+                                    zaman_asimi=30)
+        try:
+            return (json.loads(sonuc.cikti) or {}) if sonuc.tamam else {}
+        except ValueError:
+            return {}
+
+    def imaj_kur_modulleri(self, imaj, imaj_moduller):
+        """Boş kurulumda imajın istediği modüller (imaj etiketi vekosis.imaj.kur; imajda olmayan atlanır)."""
+        adlar = str(self.imaj_etiketleri(imaj).get("vekosis.imaj.kur") or "").split(",")
+        return [a.strip() for a in adlar if re.match(r"^[a-z0-9_]+$", a.strip()) and a.strip() in imaj_moduller]
+
+    def imajlar(self):
+        """Yeni kurulumda seçilebilen hazır imajlar: her sürüm ve tür için en yeni etiket."""
+        sonuc = self.komut.calistir(["docker", "image", "ls", "--filter", "label=vekosis.imaj=1", "--format",
+                                     "{{.Repository}}:{{.Tag}}"], kontrol=False, zaman_asimi=30)
+        secilen = {}
+        for imaj in sorted(a.strip() for a in sonuc.cikti.splitlines() if a.strip() and "<none>" not in a):
+            etiket = self.imaj_etiketleri(imaj)
+            seri, tur = etiket.get("vekosis.imaj.seri"), etiket.get("vekosis.imaj.tur")
+            if seri and tur:
+                secilen[(seri, tur)] = {"imaj": imaj, "ad": etiket.get("vekosis.imaj.ad") or imaj, "seri": seri, "tur": tur}
+        return sorted(secilen.values(), key=lambda x: (-float(x["seri"]), x["tur"]))
+
     def python_denetle(self, imaj, adlar):
         adlar = sorted(a for a in set(adlar) if PY_SINAMA.match(a))
         if not adlar:

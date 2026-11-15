@@ -27,6 +27,13 @@ class SahteAjan(BaseHTTPRequestHandler):
             return self._yanit(200, {"odoolar": [{"id": "deneme"}, {"id": "tekstil"}], "bos_bellek_mb": 9000})
         if yol.startswith("isler/"):
             return self._yanit(200, {"id": yol[6:], "odoo": "tekstil", "durum": "tamam"})
+        if yol == "yedek-plani" and yontem == "GET":
+            return self._yanit(200, {"genel": {}, "platformlar": [{"id": "deneme"}, {"id": "tekstil"}]})
+        if yol.endswith("yedek-plani") and yontem == "POST":
+            return self._yanit(200, {"tamam": True})
+        if yol in ("sablonlar", "kurulum-secenekleri") and yontem == "GET":
+            return self._yanit(200, {"sablonlar": [{"ad": "deneme-temel", "kaynak_odoo": "deneme"},
+                                                   {"ad": "tekstil-temel", "kaynak_odoo": "tekstil"}], "imajlar": []})
         if yontem == "POST":
             return self._yanit(202, {"id": "abcdef123456", "durum": "calisiyor"})
         return self._yanit(200, {"tamam": True, "yol": yol})
@@ -107,6 +114,35 @@ class PanelTesti(unittest.TestCase):
         self.assertIn("deploy", veri["yetkiler"])
         self.assertNotIn("terminal", veri["yetkiler"])
         self.assertEqual(self.istek("GET", "/api/ben")[0], 401)
+
+    def test_yedek_plani_yetkileri(self):
+        """Genel plan yalnız bütün kapsamlı kullanıcıda; platform planı kapsamdaki yöneticide; kullanıcı rolü değiştiremez."""
+        ayse = self.giris("ayse", "ayse-sifresi1")
+        _, veri, _ = self.istek("GET", "/api/ajan/yedek-plani", oturum=ayse)
+        self.assertEqual([p["id"] for p in veri["platformlar"]], ["deneme"])
+        self.assertEqual(self.istek("POST", "/api/ajan/yedek-plani", {"periyot_saat": 24}, oturum=ayse)[0], 403)
+        self.assertEqual(self.istek("POST", "/api/ajan/odoolar/deneme/yedek-plani", {"ozel": None}, oturum=ayse)[0], 200)
+        self.assertEqual(self.istek("POST", "/api/ajan/odoolar/tekstil/yedek-plani", {"ozel": None}, oturum=ayse)[0], 404)
+        destek = self.giris("destek", "destek-sifre1")
+        self.assertEqual(self.istek("GET", "/api/ajan/odoolar/deneme/yedek-plani", oturum=destek)[0], 200)
+        self.assertEqual(self.istek("POST", "/api/ajan/odoolar/deneme/yedek-plani", {"ozel": None}, oturum=destek)[0], 403)
+        platform = self.giris("platform", "platform-sifre")
+        self.assertEqual(self.istek("POST", "/api/ajan/yedek-plani", {"periyot_saat": 24}, oturum=platform)[0], 200)
+
+    def test_sablon_kapsami(self):
+        """Şablon kaynağının verisini taşır: kapsamı sınırlı kullanıcı yalnız kendi platformlarının şablonunu görür."""
+        ayse = self.giris("ayse", "ayse-sifresi1")
+        for yol, alan in (("sablonlar", "ad"), ("kurulum-secenekleri", "ad")):
+            _, veri, _ = self.istek("GET", f"/api/ajan/{yol}", oturum=ayse)
+            self.assertEqual([s[alan] for s in veri["sablonlar"]], ["deneme-temel"])
+        kod, _, _ = self.istek("POST", "/api/ajan/odoolar", {"id": "yeni", "baslangic": "panel-sablon", "sablon": "tekstil-temel"}, oturum=ayse)
+        self.assertEqual(kod, 404)
+        kod, _, _ = self.istek("POST", "/api/ajan/odoolar", {"id": "yeni", "baslangic": "panel-sablon", "sablon": "deneme-temel"}, oturum=ayse)
+        self.assertEqual(kod, 202)
+        self.assertEqual(self.istek("POST", "/api/ajan/odoolar/tekstil/production/sablon", {}, oturum=ayse)[0], 404)
+        self.assertEqual(self.istek("POST", "/api/ajan/sablonlar/deneme-temel/sil", {}, oturum=ayse)[0], 403)
+        destek = self.giris("destek", "destek-sifre1")
+        self.assertEqual(self.istek("POST", "/api/ajan/odoolar/deneme/production/sablon", {}, oturum=destek)[0], 403)
 
     def test_kapsam_ve_yetki(self):
         ayse = self.giris("ayse", "ayse-sifresi1")

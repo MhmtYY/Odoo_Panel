@@ -133,6 +133,13 @@ def hazirla():
     (ayar.ayar_dizin / "github_app.json").write_text('{"app_id": 1, "anahtar": "app.pem"}')
     (ayar.ayar_dizin / "app.pem").write_text("gelistirme")
     (ayar.ayar_dizin / "webhook_sirri").write_text("gelistirme-webhook-sirri")
+    for seri in ("19", "20"):
+        kur = "vekosis_web_html_lang" + (",vekosis_tr_translations" if seri == "20" else "")
+        for ek, tur, ad in (("", "community", "Community"), ("e", "enterprise", "Enterprise")):
+            imaj = f"vekosis/odoo{seri}{ek}:20261102-1"
+            komut.imajlar[imaj] = f"sha256:{imaj}"
+            komut.imaj_etiket[imaj] = {"vekosis.imaj": "1", "vekosis.imaj.seri": f"{seri}.0", "vekosis.imaj.tur": tur,
+                                       "vekosis.imaj.ad": f"Odoo {seri} {ad}", "vekosis.imaj.kur": kur}
     mock.patch.object(Depo, "_uzak", lambda d, yazma=False: (str(depo.uzak), {})).start()
 
     # 1. panelin kurduğu Odoo, depoya bağlı, production + staging

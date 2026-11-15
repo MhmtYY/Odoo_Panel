@@ -58,6 +58,10 @@ class Ayar:
         return self.kok / "yedekler"
 
     @property
+    def sablonlar(self):
+        return self.kok / "sablonlar"
+
+    @property
     def isler(self):
         return self.kok / "isler"
 
@@ -70,10 +74,10 @@ class Ayar:
         return self.kok / "onbellek"
 
     def klasorleri_kur(self):
-        for yol in (self.ayar_dizin, self.odoolar, self.depolar, self.yedekler, self.isler, self.gecici,
+        for yol in (self.ayar_dizin, self.odoolar, self.depolar, self.yedekler, self.sablonlar, self.isler, self.gecici,
                     self.onbellek, self.ayar_dizin / "anahtarlar"):
             yol.mkdir(parents=True, exist_ok=True)
-        for yol in (self.ayar_dizin, self.yedekler, self.gecici, self.isler):
+        for yol in (self.ayar_dizin, self.yedekler, self.sablonlar, self.gecici, self.isler):
             try:
                 os.chmod(yol, 0o700)
             except OSError:

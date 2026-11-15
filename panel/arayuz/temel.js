@@ -51,6 +51,7 @@ const IKONLAR = {
     asistan: '<path d="M12 3l1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8z"/><path d="M19 16v4M17 18h4"/>',
     baglanti: '<path d="M9 7V3M15 7V3M7 7h10v4a5 5 0 0 1-10 0z"/><path d="M12 16v5"/>',
     log: '<path d="M8 6h13M8 12h13M8 18h13M3.5 6h.01M3.5 12h.01M3.5 18h.01"/>',
+    sablon: '<path d="M12 3l9 5-9 5-9-5 9-5z"/><path d="M3 13l9 5 9-5M3 17.5l9 5 9-5"/>',
     yedek: '<ellipse cx="12" cy="5.5" rx="8" ry="3"/><path d="M4 5.5v6c0 1.7 3.6 3 8 3s8-1.3 8-3v-6M4 11.5v6c0 1.7 3.6 3 8 3s8-1.3 8-3v-6"/>',
     modul: '<path d="M12 3l8 4.5v9L12 21l-8-4.5v-9z"/><path d="M4 7.5l8 4.5 8-4.5M12 12v9"/>',
     ayar: '<path d="M4 7h9M17 7h3M4 17h3M11 17h9"/><circle cx="15" cy="7" r="2"/><circle cx="9" cy="17" r="2"/>',
@@ -322,6 +323,8 @@ async function isBaslat(istek, baslik, secenek = {}) {
 /* ---------- menü ve yönlendirme ---------- */
 const PLATFORM_MENU = [
     { ad: "odoolar", baslik: "Platformlar", ikon: "odoolar" },
+    { ad: "sablonlar", baslik: "Şablonlar", ikon: "sablon", yetki: "kur" },
+    { ad: "yedekleme", baslik: "Yedekleme", ikon: "yedek", yetki: "izle" },
     { ad: "kullanicilar", baslik: "Kullanıcılar ve roller", ikon: "kullanici", yetki: "kullanicilar" },
     { ad: "denetim", baslik: "Denetim kaydı", ikon: "denetim", yetki: "izle" },
     { ad: "baglantilar", baslik: "Ajan bağlantıları", ikon: "baglanti" },

@@ -1,7 +1,24 @@
 """Arayüzün kullandığı uçlar: modül listesi, loglar, Odoo silme, depo bağlantısını kaldırma."""
+import re
+import unittest
+from collections import Counter
+from pathlib import Path
+
 from ajan.hata import Hata
 
 from .yardimci import Temel, modul
+
+ARAYUZ = Path(__file__).resolve().parents[1] / "panel" / "arayuz"
+
+
+class ArayuzKaynakTesti(unittest.TestCase):
+    def test_eylem_form_ve_ekran_adlari_tekil(self):
+        """Betikler tek dosyada birleşiyor; aynı adla ikinci tanım öncekini sessizce ezer."""
+        metin = "\n".join(p.read_text(encoding="utf-8") for p in sorted(ARAYUZ.glob("*.js")))
+        for nesne in ("EYLEM", "FORM", "ODOO_SEKME", "PLATFORM"):
+            adlar = Counter(a or b for a, b in re.findall(rf'\b{nesne}(?:\.(\w+)|\["([^"]+)"\])\s*=(?!=)', metin))
+            self.assertTrue(adlar, nesne)
+            self.assertEqual([ad for ad, n in adlar.items() if n > 1], [], f"{nesne} içinde tekrar eden ad")
 
 
 class ArayuzUclariTesti(Temel):

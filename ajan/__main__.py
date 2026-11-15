@@ -1,7 +1,7 @@
 """Komut satırı.
 
   python3 -m ajan                 HTTP sunucusu (systemd hizmeti)
-  python3 -m ajan gece-yedegi     çalışan ajana gece yedeği isteği gönderir (systemd zamanlayıcısı)
+  python3 -m ajan otomatik-yedek  çalışan ajana otomatik yedek turu isteği gönderir (systemd zamanlayıcısı, saatte bir)
   python3 -m ajan saglik          çalışan ajanın sağlık yanıtı
 """
 import json
@@ -34,8 +34,8 @@ def main(argv):
     if not argv:
         calistir(Servis(ayar), _anahtar(ayar))
         return 0
-    if argv[0] == "gece-yedegi":
-        _cagir(ayar, "POST", "gece-yedegi")
+    if argv[0] in ("otomatik-yedek", "gece-yedegi"):
+        _cagir(ayar, "POST", "otomatik-yedek")
         return 0
     if argv[0] == "saglik":
         _cagir(ayar, "GET", "saglik")

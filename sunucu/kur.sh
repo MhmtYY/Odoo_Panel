@@ -4,7 +4,7 @@
 #   1/7 ön denetim
 #   2/7 kod          -> /opt/odoo-panel/surumler/<sürüm>; /opt/odoo-panel/kod bu sürümü gösterir
 #   3/7 ayarlar      -> /opt/odoo-panel/ayar: ajan.env, ajan anahtarı, webhook sırrı, github.com host anahtarı
-#   4/7 ajan         -> systemd odoo-panel-ajan (vtest ağ geçidi:8098) + gece yedeği zamanlayıcısı (04:20)
+#   4/7 ajan         -> systemd odoo-panel-ajan (vtest ağ geçidi:8098) + otomatik yedek zamanlayıcısı (saatte bir, xx:20)
 #   5/7 panel        -> pnl-panel konteyneri (root yetkisi yok, salt okunur dosya sistemi)
 #   6/7 Caddy        -> /opt/edge/etc/panel.caddy + Caddyfile'a tek "import" satırı. Önce yedek ve doğrulama;
 #                       erp.vekosis.com, test.vekosis.com ve musteri.test.vekosis.com önceki gibi yanıt vermezse
@@ -138,8 +138,9 @@ if [ "$HAZIR" != "1" ]; then
     journalctl -u odoo-panel-ajan -n 30 --no-pager
     hata "ajan yanıt vermedi"
 fi
-systemctl enable --now odoo-panel-gece-yedek.timer >/dev/null 2>&1
-echo "Ajan çalışıyor; sonraki gece yedeği: $(systemctl show odoo-panel-gece-yedek.timer -p NextElapseUSecRealtime --value)"
+systemctl enable odoo-panel-gece-yedek.timer >/dev/null 2>&1
+systemctl restart odoo-panel-gece-yedek.timer
+echo "Ajan çalışıyor; sonraki otomatik yedek turu: $(systemctl show odoo-panel-gece-yedek.timer -p NextElapseUSecRealtime --value)"
 
 adim "5/7 Panel konteyneri"
 chown 10001:10001 "$K/panel/veri"

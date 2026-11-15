@@ -12,9 +12,11 @@ from .komut import Komut
 from .kurulum import Kurulum
 from .odoolar import Odoolar
 from .ortam import Ortamlar
+from .sablon import Sablonlar
 from .staging import Staging
 from .webhook import Webhook
 from .yedek import Yedekler
+from .yedek_plani import YedekPlani
 from .zipdepo import ZipDepo
 
 
@@ -42,9 +44,11 @@ class Servis:
         self.ortamlar = Ortamlar(ayar, self.komut)
         self.odoolar = Odoolar(ayar, self.komut, self.github)
         self.yedekler = Yedekler(ayar, self.ortamlar)
+        self.yedek_plani = YedekPlani(ayar, self.isler, self.ortamlar, self.odoolar, self.yedekler)
         self.deploylar = Deploylar(ayar, self.isler, self.ortamlar, self.odoolar, self.yedekler)
         self.staging = Staging(ayar, self.isler, self.ortamlar, self.odoolar, self.yedekler, self.deploylar)
-        self.kurulum = Kurulum(ayar, self.komut, self.isler, self.ortamlar, self.odoolar)
+        self.sablonlar = Sablonlar(ayar, self.isler, self.ortamlar, self.odoolar)
+        self.kurulum = Kurulum(ayar, self.komut, self.isler, self.ortamlar, self.odoolar, self.sablonlar)
         self.webhook = Webhook(ayar, self.odoolar, self.ortamlar, self.deploylar)
         self.zipdepo = ZipDepo(ayar, self.isler, self.ortamlar, self.odoolar, self.deploylar, self.github, self.webhook)
         self.izleme = Izleme(ayar, self.komut, self.ortamlar, self.odoolar, self.deploylar)
@@ -139,23 +143,6 @@ class Servis:
 
         return self.isler.baslat("geri-yukle", f"{odoo_id}/{ortam}", isle, odoo=odoo_id, ortam=ortam, agir=True,
                                  kullanici=kullanici, aciklama=f"{dosya} geri yükleniyor")
-
-    def gece_yedegi(self):
-        """Bütün ortamların GECE yedeği (systemd zamanlayıcısı çağırır); sırayla, senkron."""
-        sonuc = []
-        for od in self.odoolar.liste():
-            for ortam in ("production", "staging"):
-                o = self.ortamlar.oku(od["id"], ortam)
-                if not o or self.ortamlar.konteyner_durumu(o) == "yok":
-                    continue
-                anahtar = f"{od['id']}/{ortam}"
-                try:
-                    is_kaydi = self.isler.baslat("yedek", anahtar, lambda b, o=o: self.yedekler.al(o, b, "GECE"),
-                                                 odoo=od["id"], ortam=ortam, kuyruk=True, aciklama="Gece yedeği")
-                    sonuc.append({"odoo": od["id"], "ortam": ortam, "is": is_kaydi["id"]})
-                except Hata as hata:
-                    sonuc.append({"odoo": od["id"], "ortam": ortam, "hata": hata.mesaj})
-        return sonuc
 
     # ------------------------------------------------------------ modüller ve loglar
     def moduller(self, odoo_id, ortam):

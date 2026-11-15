@@ -172,6 +172,19 @@ class BaglamaTesti(Temel):
                             "Config": {"Image": "vekosis/test-panel:1.0", "Labels": {}}, "Mounts": []},
         }
 
+    def test_baglanan_kurulumdan_sablon(self):
+        """Şablon yalnız panelin kurduğu platformlardan değil, bağlananlardan da alınır; kaynağa dokunulmaz."""
+        self.s.kurulum.bagla({"konteyner": "odoo-musteri", "id": "musteri", "firma": "Müşteri"})
+        sonuc = self.is_sonucu(self.s.sablonlar.olustur("musteri", "production", {"ad": "musteri-sablon", "tur": "veri", "onay": True}))
+        self.assertEqual(sonuc["durum"], "tamam", sonuc.get("cikti"))
+        dizin = self.s.sablonlar.dizin("musteri-sablon")
+        self.assertTrue((dizin / "ek-addons" / "ozel_modul" / "__manifest__.py").is_file())
+        bilgi = self.s.sablonlar.gerekli("musteri-sablon")
+        self.assertEqual((bilgi["kaynak_odoo"], bilgi["db_adi"], bilgi["seri"]), ("musteri", "musteri", "20.0"))
+        self.assertEqual(self.komut.konteynerler["odoo-musteri"], "running")
+        self.assertNotIn("musteri", self.komut.notrlestirilen)
+        self.assertEqual(self.komut.veritabanlari[("vtest-postgres", "musteri")], {"base", "sale", "stock"})
+
     def test_bulunanlar_ve_bagla(self):
         bulunan = self.s.kurulum.bulunanlar()
         self.assertEqual([b["konteyner"] for b in bulunan], ["odoo-musteri"])

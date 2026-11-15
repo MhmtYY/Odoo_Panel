@@ -1,9 +1,9 @@
 [Unit]
-Description=Odoo Yönetim Paneli gece yedeği zamanlayıcısı (ERP 03:15, test platformu 03:50 ile çakışmaz)
+Description=Odoo Yönetim Paneli otomatik yedek zamanlayıcısı (saatte bir; hangi ortamın yedeği alınacağına yedek planı karar verir)
 
 [Timer]
-OnCalendar=*-*-* 04:20:00
-RandomizedDelaySec=300
+OnCalendar=*-*-* *:20:00
+RandomizedDelaySec=60
 Persistent=true
 
 [Install]

@@ -173,7 +173,7 @@ PLATFORM.baglantilar = async () => {
                 <td data-etiket="Oluşturma" class="kirilmaz">${esc(tarihSaat(zamanMs(b.olusturma)))}</td>
                 <td data-etiket="Son kullanım" class="kirilmaz">${b.son_kullanim ? esc(goreli(zamanMs(b.son_kullanim))) : "-"}</td>
                 <td data-etiket="Bitiş" class="kirilmaz">${b.bitis ? esc(tarihSaat(zamanMs(b.bitis))) : b.tur === "oauth" ? "yenilendikçe" : "süresiz"}</td>
-                <td class="sag"><button class="btn kucuk tehlike-cizgi" data-eylem="baglanti-kaldir" data-id="${esc(b.id)}" data-ad="${esc(b.ad || "")}">Kaldır</button></td></tr>`).join("")
+                <td class="sag"><button class="btn kucuk tehlike-cizgi" data-eylem="ajan-baglanti-kaldir" data-id="${esc(b.id)}" data-ad="${esc(b.ad || "")}">Kaldır</button></td></tr>`).join("")
                 || `<tr><td colspan="6" class="soluk">Henüz bağlantı yok.</td></tr>`}</tbody></table></div>
         <div class="kart kart-ic"><h3>Ajanın kullanabileceği araçlar</h3>
             <p class="soluk kucuk-yazi">Rolünüze göre. Yazan araçları ajan istemcisi çalıştırmadan önce size sorar.</p>
@@ -213,8 +213,8 @@ EYLEM["asistan-anahtar-sil"] = () => onayPenceresi({
     dugme: "Sil", tehlike: true, tur: "kirmizi",
     evet: async () => { const v = await dene(() => api("POST", "/api/baglantilar/asistan-ayar", { anahtar: "" }), "Asistan ayarı"); pencereKapat(); if (v) ciz({ sessiz: true }); },
 });
-EYLEM["baglanti-kaldir"] = (el) => onayPenceresi({
-    baslik: "Bağlantıyı kaldır", metin: `<strong>${esc(el.dataset.ad || "Bu bağlantı")}</strong> artık panele erişemez.`,
+EYLEM["ajan-baglanti-kaldir"] = (el) => onayPenceresi({
+    baslik: "Ajan bağlantısını kaldır", metin: `<strong>${esc(el.dataset.ad || "Bu bağlantı")}</strong> artık panele erişemez.`,
     dugme: "Kaldır", tehlike: true, tur: "kirmizi",
     evet: async () => { const v = await dene(() => api("POST", `/api/baglantilar/${el.dataset.id}/sil`, {}), "Bağlantı"); pencereKapat(); if (v) { bildir("Bağlantı kaldırıldı."); ciz({ sessiz: true }); } },
 });

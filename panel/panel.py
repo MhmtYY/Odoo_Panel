@@ -181,6 +181,32 @@ def ajana_ilet(yontem, yol, govde=None, kullanici=None, akis=False, basliklar=No
 
 # ---------------------------------------------------------------- HTTP
 
+class GovdeOkuyucu:
+    """POST gövdesini sayarak okur; yanıttan önce okunmamış kısım boşaltılır (en çok SINIR_ZIP kadar)."""
+
+    def __init__(self, ham, uzunluk):
+        self._ham = ham
+        try:
+            self.kalan = max(int(uzunluk or 0), 0)
+        except ValueError:
+            self.kalan = 0
+
+    def read(self, n=-1):
+        if n is None or n < 0 or n > self.kalan:
+            n = self.kalan
+        veri = self._ham.read(n) if n else b""
+        self.kalan -= len(veri)
+        return veri
+
+    def bosalt(self):
+        """Kalanı okuyup atar; çok büyükse okumaz ve False döner (bağlantı kapatılır)."""
+        if self.kalan > SINIR_ZIP:
+            return False
+        while self.kalan and self.read(min(self.kalan, 1024 * 1024)):
+            pass
+        return True
+
+
 class Panel(BaseHTTPRequestHandler):
     server_version = "OdooYonetimPaneli/0.1"
     sys_version = ""
@@ -282,6 +308,21 @@ class Panel(BaseHTTPRequestHandler):
         self.end_headers()
 
     def do_POST(self):  # noqa: N802
+        ham = self.rfile
+        self.rfile = GovdeOkuyucu(ham, self.headers.get("Content-Length"))
+        try:
+            self._post()
+        finally:
+            self.rfile = ham
+
+    def end_headers(self):
+        # Erken hata yanıtında (401, 403, 404...) okunmamış gövde kalırsa bağlantı kapanırken istemciye "bağlantı
+        # sıfırlandı" gidebilir; yanıttan önce gövde boşaltılır.
+        if isinstance(self.rfile, GovdeOkuyucu) and not self.rfile.bosalt():
+            self.close_connection = True
+        super().end_headers()
+
+    def _post(self):
         yol = urlsplit(self.path).path
         if yol == "/webhook/github":
             return self._webhook()
@@ -638,6 +679,9 @@ class Panel(BaseHTTPRequestHandler):
                                         basliklar={"Content-Type": "application/zip"}, zaman_asimi=120)
             else:
                 govde = self._govde() if yontem == "POST" else None
+                if yol == "odoolar" and yontem == "POST" and (govde or {}).get("baslangic") == "panel-sablon" \
+                        and not self._sablon_kapsamda(kullanici, govde.get("sablon")):
+                    return self._json(404, {"hata": "Bu şablon bulunamadı."})
                 indirme = yontem == "GET" and "/yedekler/" in yol
                 kod, sonuc = ajana_ilet(yontem, ajan_yolu, govde, kullanici["ad"], akis=indirme)
                 if indirme and kod == 200:
@@ -656,11 +700,24 @@ class Panel(BaseHTTPRequestHandler):
             return self._json(404, {"hata": "Bulunamadı."})
         self._json(kod, sonuc)
 
+    def _sablon_kapsamda(self, kullanici, ad):
+        """Şablon, kaynak platformun kodunu ve verisini taşır: yalnız o platformu görebilen kullanabilir."""
+        if kapsam_tum(kullanici):
+            return True
+        kod, sonuc = ajana_ilet("GET", "sablonlar", None, kullanici["ad"])
+        if kod != 200:
+            return False
+        return any(s.get("ad") == ad and kapsamda(kullanici, s.get("kaynak_odoo") or "") for s in sonuc.get("sablonlar", []))
+
     def _suz(self, kullanici, yontem, yol, kod, sonuc, govde):
         """Yanıtı kullanıcının kapsamına göre süzer; görmemesi gereken tek kayıt için None."""
         if kapsam_tum(kullanici) or kod >= 400:
             return sonuc
-        if yol == "odoolar" and yontem == "GET":
+        if yol in ("sablonlar", "kurulum-secenekleri") and yontem == "GET":
+            sonuc["sablonlar"] = [s for s in sonuc.get("sablonlar", []) if kapsamda(kullanici, s.get("kaynak_odoo") or "")]
+        elif yol == "yedek-plani" and yontem == "GET":
+            sonuc["platformlar"] = [p for p in sonuc.get("platformlar", []) if kapsamda(kullanici, p.get("id") or "")]
+        elif yol == "odoolar" and yontem == "GET":
             sonuc["odoolar"] = [o for o in sonuc.get("odoolar", []) if kapsamda(kullanici, o.get("id"))]
             sonuc.pop("bos_bellek_mb", None)
         elif yol == "odoolar" and yontem == "POST" and kod == 202:

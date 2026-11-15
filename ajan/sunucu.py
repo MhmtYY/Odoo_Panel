@@ -44,6 +44,11 @@ def rotalar(s):
         ("GET", r"odoolar", lambda m, g, i: (200, s.odoo_listesi())),
         ("POST", r"odoolar", lambda m, g, i: is_(s.kurulum.kur(g, k(i)))),
         ("GET", r"sablon", lambda m, g, i: (200, {"sablon": s.kurulum.sablon()})),
+        ("GET", r"kurulum-secenekleri", lambda m, g, i: (200, {"imajlar": s.ortamlar.imajlar(), "sablon": s.kurulum.sablon(),
+                                                               "sablonlar": s.sablonlar.liste()})),
+        ("GET", r"sablonlar", lambda m, g, i: (200, {"sablonlar": s.sablonlar.liste()})),
+        ("POST", r"sablonlar/([a-z][a-z0-9-]{1,38}[a-z0-9])/sil", lambda m, g, i: (200, s.sablonlar.sil(m[1]))),
+        ("POST", rf"odoolar/({AD})/({ORT})/sablon", lambda m, g, i: is_(s.sablonlar.olustur(m[1], m[2], g, k(i)))),
         ("GET", r"bulunanlar", lambda m, g, i: (200, {"bulunanlar": s.kurulum.bulunanlar()})),
         ("POST", r"bagla", lambda m, g, i: (200, s.kurulum.bagla(g, k(i)))),
         ("GET", rf"odoolar/({AD})", lambda m, g, i: (200, s.odoo_ozeti(s.odoolar.gerekli(m[1]), durum=True))),
@@ -99,7 +104,12 @@ def rotalar(s):
         ("GET", r"isler", lambda m, g, i: (200, {"isler": s.isler.liste(
             odoo=i.sorgu.get("odoo"), idler=[x for x in i.sorgu.get("idler", "").split(",") if x] or None)})),
         ("GET", r"isler/([0-9a-f]{12})", lambda m, g, i: (200, s.isler.oku(m[1]))),
-        ("POST", r"gece-yedegi", lambda m, g, i: (202, {"isler": s.gece_yedegi()})),
+        # otomatik yedek: zamanlayıcı saatte bir çağırır ("gece-yedegi" eski zamanlayıcı birimi için)
+        ("POST", r"otomatik-yedek|gece-yedegi", lambda m, g, i: (202, {"isler": s.yedek_plani.tur()})),
+        ("GET", r"yedek-plani", lambda m, g, i: (200, s.yedek_plani.ozet())),
+        ("POST", r"yedek-plani", lambda m, g, i: (200, {"genel": s.yedek_plani.genel_yaz(g)})),
+        ("GET", rf"odoolar/({AD})/yedek-plani", lambda m, g, i: (200, s.yedek_plani.platform(m[1]))),
+        ("POST", rf"odoolar/({AD})/yedek-plani", lambda m, g, i: (200, s.yedek_plani.platform_yaz(m[1], g))),
     ]
 
 

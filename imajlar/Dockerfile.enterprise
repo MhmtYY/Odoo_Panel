@@ -1,0 +1,12 @@
+# Odoo Enterprise imajı: aynı sürümün Community imajı + Enterprise kodu. Enterprise lisanslıdır; imaj dışarı verilmez.
+ARG TABAN
+FROM ${TABAN}
+
+ARG AD
+ARG ENTERPRISE_COMMIT
+
+COPY --chown=odoo:odoo enterprise /mnt/enterprise-addons
+
+LABEL vekosis.imaj.tur="enterprise" \
+      vekosis.imaj.ad="${AD}" \
+      vekosis.imaj.enterprise_commit="${ENTERPRISE_COMMIT}"

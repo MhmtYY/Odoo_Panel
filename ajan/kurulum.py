@@ -4,6 +4,7 @@ Yeni Odoo (panelin yönettiği production ortamı):
   bos     boş veritabanı: base + Türkçe
   sablon  test platformunun geçerli tam şablonu kopyalanır (eski platformun yeni-musteri.sh'iyle aynı yöntem);
           örnek veri isteğe bağlı yenilenir ya da silinir
+  panel-sablon  platformdan alınmış şablon (ajan/sablon.py): kod, imaj ve veri ya da modül listesi şablondan gelir
 Bağlama: konteyner incelenir (imaj, odoo.conf, veritabanı, dosya deposu birimi, adres). Hiçbir şey yeniden
 başlatılmaz, compose dosyasına dokunulmaz.
 """
@@ -30,7 +31,7 @@ try:
     env['res.lang']._activate_lang('tr_TR')
 except Exception as hata:
     print('DIL UYARISI:', hata)
-env.ref('base.user_admin').write({'password': A['sifre'], 'lang': 'tr_TR', 'tz': 'Europe/Istanbul'})
+env.ref('base.user_admin').write({'active': True, 'password': A['sifre'], 'lang': 'tr_TR', 'tz': 'Europe/Istanbul'})
 if A['sablon'] and 'vekosis.sample.data' in env:
     Ornek = env['vekosis.sample.data']
     print('ORNEK SILINDI:', Ornek._vsd_remove())
@@ -44,12 +45,13 @@ print('KISISEL_TAMAM')
 
 
 class Kurulum:
-    def __init__(self, ayar, komut, isler, ortamlar, odoolar):
+    def __init__(self, ayar, komut, isler, ortamlar, odoolar, sablonlar):
         self.ayar = ayar
         self.komut = komut
         self.isler = isler
         self.ortamlar = ortamlar
         self.odoolar = odoolar
+        self.sablonlar = sablonlar
 
     # ------------------------------------------------------------ test platformu şablonu
     def sablon(self):
@@ -75,12 +77,13 @@ class Kurulum:
         odoo_id = self.ayar.ad_denetle(govde.get("id"))
         firma = re.sub(r"[\x00-\x1f]", "", str(govde.get("firma") or odoo_id)).strip()[:120] or odoo_id
         baslangic = str(govde.get("baslangic") or "bos")
-        if baslangic not in ("bos", "sablon"):
-            raise Hata(400, "Başlangıç bos ya da sablon olmalı.")
+        if baslangic not in ("bos", "sablon", "panel-sablon"):
+            raise Hata(400, "Başlangıç bos, sablon ya da panel-sablon olmalı.")
         sablon = self.sablon() if baslangic == "sablon" else None
         if baslangic == "sablon" and not sablon:
             raise Hata(400, "Test platformunda geçerli şablon yok.")
-        imaj = str(govde.get("imaj") or (sablon or self.sablon() or {}).get("imaj") or "")
+        psablon = self.sablonlar.gerekli(govde.get("sablon")) if baslangic == "panel-sablon" else None
+        imaj = psablon["imaj"] if psablon else str(govde.get("imaj") or (sablon or self.sablon() or {}).get("imaj") or "")
         if not re.match(r"^[a-z0-9][a-z0-9._/-]*:[A-Za-z0-9._-]+$", imaj):
             raise Hata(400, "İmaj belirtilmeli (ör. vekosis/test20:20261108-1).")
         if sablon and imaj != sablon["imaj"]:
@@ -92,10 +95,10 @@ class Kurulum:
         deneme_gun = govde.get("deneme_gun")
         return self.isler.baslat(
             "kur", f"{odoo_id}/production",
-            lambda b: self._kur(b, odoo_id, firma, imaj, sablon, ornek, deneme_gun, kullanici),
+            lambda b: self._kur(b, odoo_id, firma, imaj, sablon, ornek, deneme_gun, kullanici, psablon),
             odoo=odoo_id, ortam="production", agir=True, kullanici=kullanici, aciklama=f"{odoo_id} kuruluyor")
 
-    def _kur(self, b, odoo_id, firma, imaj, sablon, ornek, deneme_gun, kullanici):
+    def _kur(self, b, odoo_id, firma, imaj, sablon, ornek, deneme_gun, kullanici, psablon=None):
         imaj_bilgi = self.ortamlar.imaj_bilgisi(imaj)
         o = self.ortamlar.yeni_panel_ortami(odoo_id, "production", imaj, imaj_bilgi["yollar"])
         if self.ortamlar.konteyner_durumu(o) != "yok":
@@ -104,7 +107,8 @@ class Kurulum:
             raise Hata(409, f"{o['db_adi']} veritabanı zaten var.")
         od = {"id": odoo_id, "firma": firma, "tur": "panel", "kaynak": "panel", "seri": imaj_bilgi["seri"],
               "olusturma": kayit.simdi(), "olusturan": kullanici, "depo": None,
-              "baslangic": "sablon" if sablon else "bos", "sablon": (sablon or {}).get("ad")}
+              "baslangic": "panel-sablon" if psablon else "sablon" if sablon else "bos",
+              "sablon": (psablon or sablon or {}).get("ad")}
         if deneme_gun:
             od["deneme_gun"] = int(deneme_gun)
         dizin = self.ortamlar.dizin(odoo_id, "production")
@@ -124,12 +128,15 @@ class Kurulum:
                 with b.adim("Veritabanı şablondan kopyalanıyor"):
                     self._sablondan(b, o, sablon, sifre)
                     kurulan.append("db")
+            elif psablon:
+                self._panel_sablonundan(b, o, psablon, sifre, kurulan)
             else:
                 with b.adim("Boş veritabanı oluşturuluyor"):
                     self.ortamlar.db_olustur(o, b, sifre)
                     kurulan.append("db")
-                    self.ortamlar.odoo_tek(o, b, ["-i", "base", "--load-language", "tr_TR", "--stop-after-init",
-                                                  "--no-http"], zaman_asimi=1800)
+                    moduller = ["base"] + self.ortamlar.imaj_kur_modulleri(imaj, imaj_bilgi["moduller"])
+                    self.ortamlar.odoo_tek(o, b, ["-i", ",".join(moduller), "--load-language", "tr_TR",
+                                                  "--stop-after-init", "--no-http"], zaman_asimi=1800)
             with b.adim("Firma ve yönetici ayarlanıyor"):
                 ayar = json.dumps({"adres": o["adres"], "firma": firma, "sifre": admin_sifre,
                                    "sablon": bool(sablon), "ornek": ornek}, ensure_ascii=False)
@@ -155,6 +162,24 @@ class Kurulum:
         self.ortamlar.yaz(o)
         self.odoolar.yaz(od)
         return {"adres": o["adres"], "odoo": odoo_id}
+
+    def _panel_sablonundan(self, b, o, psablon, sifre, kurulan):
+        with b.adim("Şablonun kodu yerleştiriliyor"):
+            self.sablonlar.kodu_yerlestir(psablon, o)
+        if psablon["tur"] == "veri":
+            kaynak = self.sablonlar.dizin(psablon["ad"])
+            with b.adim("Veritabanı ve dosyalar şablondan yükleniyor"):
+                self.ortamlar.db_olustur(o, b, sifre)
+                kurulan.append("db")
+                sayi = self.ortamlar.dokum_yukle(o, b, kaynak / "veritabani.dump")
+                b.yaz(f"{sayi} kurulu modül")
+                self.ortamlar.filestore_ac(o, b, kaynak, psablon["db_adi"])
+            return
+        with b.adim(f"Boş veritabanına {len(psablon['moduller'])} modül kuruluyor"):
+            self.ortamlar.db_olustur(o, b, sifre)
+            kurulan.append("db")
+            self.ortamlar.odoo_tek(o, b, ["-i", ",".join(psablon["moduller"]), "--load-language", "tr_TR",
+                                          "--stop-after-init", "--no-http"], zaman_asimi=3600)
 
     def _sablondan(self, b, o, sablon, sifre):
         rol, db, kaynak = o["db_rol"], o["db_adi"], sablon["ad"]

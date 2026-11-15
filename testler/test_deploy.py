@@ -50,6 +50,20 @@ class KurulumTesti(Temel):
         self.assertFalse((self.ayar.kenar_tenants / "bozuk.panel.vekosis.com").exists())
 
 
+class DepoBaglamaTesti(Temel):
+    """Sunucuda GitHub App yokken App bağlantısı deploy'da değil, bağlarken reddedilmeli."""
+
+    def test_app_yokken_app_baglantisi_reddedilir(self):
+        self.odoo_kur()
+        with self.assertRaises(Hata) as h:
+            self.depo_bagla(baglanti="app")
+        self.assertEqual(h.exception.kod, 400)
+        self.assertIn("GitHub App tanımlı değil", h.exception.mesaj)
+        self.assertIsNone(self.s.odoolar.gerekli("deneme").get("depo"))
+        self.depo_bagla(baglanti="anahtar")
+        self.assertEqual(self.s.odoolar.gerekli("deneme")["depo"]["baglanti"], "anahtar")
+
+
 class DeployTesti(Temel):
     def setUp(self):
         super().setUp()

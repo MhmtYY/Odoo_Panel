@@ -34,6 +34,9 @@ class SahteKomut(Komut):
         self.guncellenenler = []
         self.notrlestirilen = []
         self.yuklenen_dokumler = []
+        self.imaj_etiket = {}  # imaj -> Docker etiketleri
+        self.sablon_denetim = "kullanici=0\nsifre=0\nposta=0"
+        self.calisan_sql = []
 
     # -- yardımcılar
     def gizle(self, *degerler):
@@ -78,7 +81,11 @@ class SahteKomut(Komut):
     def _docker(self, a, girdi, girdi_dosya, cikti_dosya):  # noqa: C901 - tek yerde okunur taklit
         if a[:2] == ["image", "inspect"]:
             imaj = a[-1]
-            return (0, self.imajlar[imaj]) if imaj in self.imajlar else (1, "No such image")
+            if imaj not in self.imajlar:
+                return 1, "No such image"
+            return 0, json.dumps(self.imaj_etiket.get(imaj)) if "Labels" in a[3] else self.imajlar[imaj]
+        if a[:2] == ["image", "ls"]:
+            return 0, "\n".join(self.imaj_etiket)
         if a[0] == "inspect" and a[1] == "-f":
             ad = a[-1]
             if "{{.State.Status}}" in a[2]:
@@ -207,6 +214,11 @@ class SahteKomut(Komut):
 
     def _sql(self, konteyner, db, sql):
         anahtar = (konteyner, db)
+        self.calisan_sql.append(sql)
+        if "SELECT id FROM ir_cron WHERE active" in sql:
+            return 0, "11\n12"
+        if "'kullanici=' ||" in sql:
+            return 0, self.sablon_denetim
         if "asistan_sorgusu" in sql:  # asistanın salt okunur sorgusu (--csv)
             return 0, "id,name\n1,Azure\n2,Deco\n"
         if "pg_database_size" in sql:

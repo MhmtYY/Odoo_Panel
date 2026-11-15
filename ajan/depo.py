@@ -71,7 +71,8 @@ class Depo:
         """(url, ortam değişkenleri)"""
         if self.baglanti == "app":
             if not self.github or not self.github.app_var():
-                raise Hata(400, "Depo GitHub App ile bağlı ama App bilgisi sunucuda yok.")
+                raise Hata(400, "Depo GitHub App ile bağlı ama sunucuda GitHub App tanımlı değil. Platformun "
+                                "Ayarlar > Kod deposu bölümünden bağlantıyı Deploy key yapın.")
             jeton = self.github.jeton(self.ad)
             kimlik = base64.b64encode(f"x-access-token:{jeton}".encode()).decode()
             self.komut.gizle(kimlik)

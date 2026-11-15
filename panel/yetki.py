@@ -16,7 +16,7 @@ YETKILER = {
     "geriYukle": (1, 1, 0), "yedekYukle": (1, 1, 0), "sil": (1, 1, 0), "alanAdi": (1, 1, 0), "modul": (1, 1, 0),
     "deploy": (1, 1, 0), "stagingYenile": (1, 1, 0), "github": (1, 1, 0), "asistan": (1, 1, 0), "eposta": (1, 1, 0),
     "kullanicilar": (1, 1, 0), "sablon": (1, 1, 0), "bagla": (1, 1, 0), "yukseltme": (1, 1, 0), "isler": (1, 1, 0),
-    "destek": (1, 1, 0), "terminal": (1, 0, 0),
+    "destek": (1, 1, 0), "terminal": (1, 0, 0), "yedekPlani": (1, 1, 0),
 }
 SUTUN = {"platform": 0, "yonetici": 1, "kullanici": 2}
 
@@ -31,6 +31,14 @@ ISTEKLER = [
     ("GET", r"odoolar", "izle", "yok"),
     ("POST", r"odoolar", "kur", "yok"),
     ("GET", r"sablon", "kur", "yok"),
+    ("GET", r"kurulum-secenekleri", "kur", "yok"),
+    ("GET", r"sablonlar", "kur", "yok"),
+    ("POST", r"sablonlar/([a-z][a-z0-9-]{1,38}[a-z0-9])/sil", "sablon", "tum"),
+    ("POST", rf"odoolar/({AD})/({ORT})/sablon", "sablon", "odoo"),
+    ("GET", r"yedek-plani", "izle", "yok"),
+    ("POST", r"yedek-plani", "yedekPlani", "tum"),
+    ("GET", rf"odoolar/({AD})/yedek-plani", "izle", "odoo"),
+    ("POST", rf"odoolar/({AD})/yedek-plani", "yedekPlani", "odoo"),
     ("GET", r"bulunanlar", "bagla", "tum"),
     ("POST", r"bagla", "bagla", "tum"),
     ("GET", rf"odoolar/({AD})", "izle", "odoo"),

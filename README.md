@@ -44,7 +44,7 @@ isler/           iş kayıtları ve günlükleri
 
 `kur.sh` tekrar çalıştırılabilir; güncelleme de aynı yoldan yapılır. Ayarlara, kullanıcılara ve ortamlara dokunmaz. Yaptıkları:
 
-- ajanı systemd hizmeti olarak kurar (`odoo-panel-ajan`, vtest ağ geçidi:8098) ve gece yedeği zamanlayıcısını açar (04:20);
+- ajanı systemd hizmeti olarak kurar (`odoo-panel-ajan`, vtest ağ geçidi:8098) ve otomatik yedek zamanlayıcısını açar (saatte bir, xx:20; hangi ortamın yedekleneceğine yedek planı karar verir);
 - `pnl-panel` konteynerini açar;
 - Caddy'ye `panel.caddy` dosyasını ve Caddyfile'a tek bir `import` satırını ekler:
   - önce yedek alır ve yeni yapılandırmayı doğrular;
@@ -65,6 +65,34 @@ Panelin kurmadığı Odoo'lar (erp.vekosis.com, test platformundaki ortamlar) "b
 - production'dan staging açar.
 
 Durdurma ve başlatma, kuruluma ayrıca izin verilince açılır. Deploy yalnız panelin kurduğu Odoo'larda var.
+
+## Hazır imajlar
+
+*Yeni Odoo kur* ekranındaki sürümler `imajlar/` kitiyle sunucuda derlenir: `vekosis/odoo19`, `vekosis/odoo19e`, `vekosis/odoo20`, `vekosis/odoo20e`.
+
+- İçerik: resmî Odoo imajı, LibreOffice ve yazı tipleri, Türkçe düzeltme modülleri (`/mnt/vekosis-addons`); Enterprise'da ayrıca `/mnt/enterprise-addons`.
+- Panel imajları `vekosis.imaj=1` etiketinden tanır; her sürüm ve tür için en yeni etiketi listeler. `vekosis.imaj.kur` etiketindeki modüller boş kurulumda kurulur.
+- Enterprise kodu `imajlar/enterprise_al.ps1` ile dizüstünde, GitHub erişimiyle alınır (`../enterprise_kaynak`, git dışında). Yalnız kendi sunucumuzdaki imaja gider.
+- Kit paketi: `python araclar/imaj_paketle.py`. Sunucuda `derle.sh <enterprise klasörü>` dört imajı derler, her birini geçici bir veritabanında boş kurulumla dener. Çalışan ortamlara dokunmaz.
+
+## Şablonlar
+
+Her platformun (bağlananlar dahil) Ayarlar sekmesinden şablon alınır; yeni Odoo kurarken "Şablondan" seçilir (`/opt/odoo-panel/sablonlar/<ad>`).
+
+- **Yalnız modüller:** kurulu modül listesi, kod ve imaj. Yeni platform boş veritabanıyla aynı modülleri kurar.
+- **Veriyle:** veritabanı ve dosyalar da alınır. Döküm geçici bir veritabanına açılıp temizlenir, şablona temiz hali yazılır: Odoo'nun nötrleştirmesi, posta sunucuları, e-Belge ve hesap anahtarları, API anahtarları; yönetici dışındaki kullanıcılar pasif olur, şifreler silinir. Zamanlanmış işler açık kalır. Temizlik doğrulanamazsa şablon oluşmaz.
+- Gerçek müşteri verisi olan platformdan veriyle şablon alınmamalı; arayüz onay ister.
+- Şablon kaynağının kodunu ve verisini taşıdığı için kapsamı sınırlı kullanıcı yalnız kendi platformlarından alınmış şablonları görür ve kullanır.
+- Şablonun kodu yeni platformun ek modül klasörüne konur; yeni platform depoya bağlı başlamaz. Sonradan depo bağlanırsa depodaki modüller önceliklidir.
+
+## Otomatik yedek
+
+Sol menüdeki *Yedekleme* ekranında genel plan, her platformun Yedekler sekmesinde o platforma özel plan ayarlanır (özel plan yoksa genel plan geçerli).
+
+- Plan: sıklık (kapalı, 6 saatte bir, 12 saatte bir, günde bir, 2 günde bir, haftada bir), saat ve kaç gün saklanacağı. Varsayılan: günde bir 04:20, 7 gün.
+- Zamanlayıcı (`odoo-panel-gece-yedek.timer`) saatte bir xx:20'de turu çalıştırır; zamanı gelen ortamın (production ve varsa staging) `OTOMATIK` yedeği alınır. Sunucu kapalıyken kaçırılan yedek, açılınca saati beklenmeden alınır.
+- Saklama süresini aşan otomatik yedekler (eski `GECE` yedekleri dahil) silinir; en yeni otomatik yedek her zaman kalır. Elle, deploy öncesi ve silinmeden önce alınan yedekler bu plandan bağımsızdır.
+- Genel planı yalnız bütün platformları kapsayan kullanıcı, platform planını o platformu kapsayan yönetici değiştirir.
 
 ## Arayüz
 

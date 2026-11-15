@@ -10,16 +10,16 @@ import shutil
 import tarfile
 import tempfile
 from contextlib import contextmanager
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 
 from . import kayit
 from .hata import Hata
 
 ETIKET_DESEN = re.compile(r"^[A-Z][A-Z-]{1,30}$")
-# etiket -> en çok kaç yedek tutulur (SILINMEDEN-ONCE hiç silinmez)
-SAKLAMA = {"GECE": 7, "DEPLOY-ONCESI": 5, "ELLE": 10, "YENILEME-ONCESI": 3, "GERI-YUKLEME-ONCESI": 3,
-           "GERI-ALMA-ONCESI": 3}
+# etiket -> en çok kaç yedek tutulur (SILINMEDEN-ONCE hiç silinmez). Otomatik yedekler (OTOMATIK, eski GECE)
+# burada değil, yedek planının saklama süresiyle (gün) temizlenir: ajan/yedek_plani.py
+SAKLAMA = {"DEPLOY-ONCESI": 5, "ELLE": 10, "YENILEME-ONCESI": 3, "GERI-YUKLEME-ONCESI": 3, "GERI-ALMA-ONCESI": 3}
 
 
 class Yedekler:
@@ -102,6 +102,19 @@ class Yedekler:
             yol = self.dizin(odoo_id, ortam) / eski["dosya"]
             yol.unlink(missing_ok=True)
             yol.with_suffix(".json").unlink(missing_ok=True)
+
+    def otomatik_temizle(self, odoo_id, ortam, gun, an, etiketler):
+        """Saklama süresini (gün) aşan otomatik yedekleri siler; en yeni otomatik yedek her zaman kalır."""
+        sinir = (an - timedelta(days=gun)).isoformat(timespec="seconds")
+        otomatik = [y for y in self.liste(odoo_id, ortam) if y["etiket"] in etiketler]
+        silinen = []
+        for eski in otomatik[1:]:
+            if eski["tarih"] < sinir:
+                yol = self.dizin(odoo_id, ortam) / eski["dosya"]
+                yol.unlink(missing_ok=True)
+                yol.with_suffix(".json").unlink(missing_ok=True)
+                silinen.append(eski["dosya"])
+        return silinen
 
     @contextmanager
     def ac(self, yol):
