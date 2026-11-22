@@ -30,6 +30,7 @@ class Deploylar:
         self.ortamlar = ortamlar
         self.odoolar = odoolar
         self.yedekler = yedekler
+        self.provalar = None  # servis bağlar (prova.py); prova_zorunlu açık Odoo'da deploy kapısı
 
     # ------------------------------------------------------------ kayıtlar
     def _dizin(self, odoo_id, ortam):
@@ -159,6 +160,19 @@ class Deploylar:
                 return {"deploy": d["no"], "_durum": "hata", "engel": engel}
             b.yaz(f"Güncellenecek: {', '.join(guncellenecek) or 'yok'}; yeni (kurulmayacak): "
                   f"{', '.join(d['yeni_moduller']) or 'yok'}")
+
+        if od.get("prova_zorunlu") and ortam == "production" and guncellenecek and self.provalar is not None:
+            with b.adim("Prova denetimi") as adim:
+                prova = self.provalar.gecen(o["odoo"], ortam, sha, o.get("commit"))
+                if not prova:
+                    adim["durum"] = "engel"
+                    engel = (f"Bu commit ({sha[:7]}) için, ortam şimdiki sürümündeyken (başlangıç "
+                             f"{(o.get('commit') or 'yok')[:7]}) son 48 saatte geçmiş bir prova yok. Önce prova başlatın.")
+                    b.yaz(f"DEPLOY DURDU: {engel}")
+                    self._bitir(d, "durdu", engel=engel)
+                    return {"deploy": d["no"], "_durum": "hata", "engel": engel, "prova_gerekli": True, "commit": sha}
+                d["prova"] = prova["no"]
+                b.yaz(f"Prova #{prova['no']} geçti ({prova.get('bitis', '')[:16]})")
 
         yedek = None
         if ortam == "production":

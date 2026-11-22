@@ -123,13 +123,14 @@ ODOO_SEKME.deploylar = async (od, ortamAd, ort) => {
             od.tur === "panel" ? "Depo bağlanınca her push bir deploy olur, geçmiş burada görünür ve eski sürüme dönülebilir." : "Staging'in kodu production'dan kopyalandı.",
             od.tur === "panel" && yetkili("github") ? `<a class="btn birincil" href="${odooRota(od.id, "production", "ayarlar")}">${ikon("github", 15)}Depoyu bağla</a>` : "", "github")];
     }
-    const [dv, iv] = await Promise.all([ajan.al(`odoolar/${od.id}/${ortamAd}/deploylar`), ajan.al(`isler?odoo=${encodeURIComponent(od.id)}`)]);
+    const [dv, iv, provalar] = await Promise.all([ajan.al(`odoolar/${od.id}/${ortamAd}/deploylar`), ajan.al(`isler?odoo=${encodeURIComponent(od.id)}`),
+        provalariAl(od, ortamAd, ort)]);
     const deploylar = dv.deploylar;
     const isler = iv.isler.filter((k) => !k.ortam || k.ortam === ortamAd).slice(0, 8);
     return [`<div class="iki-sutun">
-        <div class="yigin">${surumKart(od, ortamAd, ort, deploylar)}${gecmisKart(od, ortamAd, ort, deploylar)}</div>
+        <div class="yigin">${surumKart(od, ortamAd, ort, deploylar)}${provaBolumu(od, ortamAd, ort, provalar)}${gecmisKart(od, ortamAd, ort, deploylar)}</div>
         <aside class="yan-sutun yigin">
-            ${ort.bekleyen ? bekleyenKart(od, ortamAd, ort) : ""}
+            ${ort.bekleyen ? bekleyenKart(od, ortamAd, ort, provalar) : ""}
             ${depoKart(od, ortamAd)}
             ${islerKart(isler)}
         </aside>
@@ -180,6 +181,7 @@ function deploySatir(d, od, ortamAd, ort, mesgul) {
             <div class="satir-meta"><span>#${esc(d.no)}</span><span>${esc(d.yazar || d.kullanici || "-")}</span><span title="${esc(tarihSaat(d.baslangic))}">${esc(saat(d.baslangic))}, ${esc(goreli(d.baslangic))}</span>
                 <span class="etiket">${ikon(tetik[1], 11)}${esc(tetik[0])}</span>${d.commit ? `<span class="hash">${esc(kisa(d.commit))}</span>` : ""}
                 ${d.moduller && d.moduller.length ? `<span class="modul-ad">${esc(d.moduller.join(", "))}</span>` : ""}
+                ${d.prova ? `<span class="etiket">${ikon("denetim", 11)}prova #${esc(d.prova)}</span>` : ""}
                 ${d.sure != null ? `<span>${esc(d.sure)} sn</span>` : ""}${d.kullanici && d.yazar && d.kullanici !== d.yazar ? `<span>başlatan: ${esc(d.kullanici)}</span>` : ""}</div>
             ${notlar.map((n) => `<div class="satir-not">${esc(n)}</div>`).join("")}
             ${(d.uyarilar || []).slice(0, 3).map((u) => `<div class="satir-not" style="color:var(--sari)">${esc(u)}</div>`).join("")}
@@ -206,12 +208,13 @@ function gecmisKart(od, ortamAd, ort, deploylar) {
         <div class="kart"><ul>${gruplar.map((g) => `<li><div class="gun-baslik">${esc(g.g)}</div><ul>${g.liste.map((d) => deploySatir(d, od, ortamAd, ort, mesgul)).join("")}</ul></li>`).join("")}</ul></div>
     </section>`;
 }
-function bekleyenKart(od, ortamAd, ort) {
+function bekleyenKart(od, ortamAd, ort, provalar = []) {
     const b = ort.bekleyen;
     return `<div class="kart kart-ic" style="border-color:var(--ort)">
         <div class="kart-baslik"><h3>Depoda yeni commit</h3></div>
         <ul class="commit-liste"><li><span class="hash">${esc(kisa(b.commit))}</span><span class="baslik">${esc(b.baslik || "")}</span></li></ul>
         <p class="soluk kucuk-yazi">${esc(b.yazar || "")} · ${esc(goreli(b.tarih))}. Bu ortam elle güncellenir.</p>
+        ${provaBekleyenNotu(od, ortamAd, ort, b.commit, provalar)}
         ${yetkili("deploy") ? `<div class="dugmeler"><button class="btn birincil" data-eylem="deploy" data-odoo="${esc(od.id)}" data-ortam="${ortamAd}" data-commit="${esc(b.commit)}">Şimdi güncelle</button></div>` : ""}
     </div>`;
 }
@@ -247,12 +250,17 @@ function islerKart(isler) {
 EYLEM.deploy = (el) => {
     const commit = el.dataset.commit;
     const ortam = el.dataset.ortam;
+    const odoo = el.dataset.odoo;
     onayPenceresi({
         baslik: `${ortamAdi(ortam)} deploy`,
         metin: `${commit ? `<span class="hash">${esc(kisa(commit))}</span> commit'i` : "Dalın son hali"} ${ortamAdi(ortam).toLowerCase()} ortamına deploy edilecek.
-            ${ortam === "production" ? "Önce yedek alınır. Odoo güncelleme süresince kısa bir süre kapalı kalır." : ""} Uyumluluk denetimi geçmezse hiçbir şeye dokunulmaz.`,
+            ${ortam === "production" ? "Önce yedek alınır. Odoo güncelleme süresince kısa bir süre kapalı kalır." : ""} Uyumluluk denetimi geçmezse hiçbir şeye dokunulmaz.
+            ${provaKapisiAcik(bulOdoo(odoo), ortam) ? " Prova zorunlu: bu commit için geçerli bir prova yoksa deploy durur." : ""}`,
         dugme: "Deploy et",
-        evet: () => isBaslat(() => ajan.gonder(`odoolar/${el.dataset.odoo}/${ortam}/deploy`, commit ? { commit } : {}), `${ortamAdi(ortam)} deploy`),
+        evet: () => isBaslat(() => ajan.gonder(`odoolar/${odoo}/${ortam}/deploy`, commit ? { commit } : {}), `${ortamAdi(ortam)} deploy`, {
+            kapanis: (k) => (k.sonuc && k.sonuc.prova_gerekli && yetkili("deploy")
+                ? `<button class="btn birincil" data-eylem="prova-baslat" data-odoo="${esc(odoo)}" data-ortam="${esc(ortam)}" data-commit="${esc(k.sonuc.commit)}">${ikon("denetim", 14)}Bu commit için prova başlat</button>` : ""),
+        }),
     });
 };
 EYLEM["staging-yenile"] = (el) => onayPenceresi({
@@ -273,6 +281,7 @@ EYLEM["deploy-log"] = (el) => dene(async () => {
         ${d.yeni_moduller && d.yeni_moduller.length ? `<div class="bilgi-satir"><span>Kurulmayan yeni modüller</span><span class="deger">${esc(d.yeni_moduller.join(", "))}</span></div>` : ""}
         ${d.paketler && d.paketler.length ? `<div class="bilgi-satir"><span>Python paketleri</span><span class="deger">${esc(d.paketler.join(", "))}</span></div>` : ""}
         ${d.yedek ? `<div class="bilgi-satir"><span>Deploy öncesi yedek</span><code class="kucuk-yazi">${esc(d.yedek)}</code></div>` : ""}
+        ${d.prova ? `<div class="bilgi-satir"><span>Prova</span><span class="deger"><button class="btn bag kucuk" data-eylem="prova-ayrinti" data-odoo="${esc(el.dataset.odoo)}" data-ortam="${esc(d.ortam)}" data-no="${esc(d.prova)}">#${esc(d.prova)} geçti</button></span></div>` : ""}
         ${[d.engel, d.hata, d.not].filter(Boolean).map((n) => uyariKutu("kirmizi", esc(n))).join("")}
         ${(d.engeller || []).length ? `<ul class="denetim-liste uste-az">${d.engeller.map((e) => `<li>${ikon("hata", 14, 'class="ic-kirmizi"')}<span><code>${esc(e.modul)}</code>: ${esc(e.neden)}</span></li>`).join("")}</ul>` : ""}
         ${(d.uyarilar || []).length ? `<ul class="denetim-liste uste-az">${d.uyarilar.map((u) => `<li>${ikon("uyari", 14, 'class="ic-sari"')}<span>${esc(u)}</span></li>`).join("")}</ul>` : ""}
@@ -691,7 +700,7 @@ ODOO_SEKME.ayarlar = async (od, ortamAd) => {
     const pr = od.ortamlar.production;
     const bolumler = [];
     if (od.tur === "bagli") bolumler.push(bagliBolum(od));
-    if (od.tur === "panel" && yetkili("github")) bolumler.push(depoBolum(od));
+    if (od.tur === "panel" && yetkili("github")) bolumler.push(depoBolum(od), provaAyarBolumu(od));
     if (st && yetkili("stagingYenile")) {
         bolumler.push(`<section class="kart kart-ic ort-staging">
             <h2 style="margin-bottom:.35rem">Staging</h2>

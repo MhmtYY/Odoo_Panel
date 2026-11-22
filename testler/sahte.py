@@ -37,6 +37,17 @@ class SahteKomut(Komut):
         self.imaj_etiket = {}  # imaj -> Docker etiketleri
         self.sablon_denetim = "kullanici=0\nsifre=0\nposta=0"
         self.calisan_sql = []
+        # prova (ajan/prova.py): veritabanı -> muhasebe değişmezi satırları; degismez_bozan sonraki -u'da birini bozar
+        self.degismez = {}
+        self.degismez_bozan = False
+        self.prova_calismalari = []  # (veritabanı, "neutralize" | "shell" | "-u", modüller, kod)
+        # prova kabuğu (ajan/duman.py): sıradaki çıktılar (sözlük ya da None = sonuç satırı yok); boşsa varsayılan
+        self.duman_sirasi = []
+        self.duman_varsayilan = {
+            "surum": 1, "notlar": [],
+            "ubl": {"7": {"yaprak": {"Invoice/cbc:ID[1]": "a1", "Invoice/cac:TaxTotal[1]/cbc:TaxAmount[1]": "b2"},
+                          "gonderilmis": True, "xsd": True}},
+            "duman": {"satis": {"taslak": {"toplam": 3240.0}}, "kdv1": {"atlandi": "modül yok"}}}
 
     # -- yardımcılar
     def gizle(self, *degerler):
@@ -215,6 +226,15 @@ class SahteKomut(Komut):
     def _sql(self, konteyner, db, sql):
         anahtar = (konteyner, db)
         self.calisan_sql.append(sql)
+        if "-- vekosis-degismez-kolon" in sql:
+            return 0, "\n".join(["account_move_line.company_id", "account_move_line.account_id",
+                                 "account_move_line.debit", "account_move_line.credit", "account_move_line.balance",
+                                 "account_move_line.parent_state", "account_move.company_id",
+                                 "account_move.move_type", "account_move.state"])
+        if "-- vekosis-degismez" in sql:
+            satirlar = self.degismez.setdefault(db, {"yevmiye.1": "10;100.00;100.00;0.00;0.00;123",
+                                                     "mizan.1": "0.00", "fis.1.out_invoice.posted": "4"})
+            return 0, "\n".join(f"{k}|{v}" for k, v in satirlar.items())
         if "SELECT id FROM ir_cron WHERE active" in sql:
             return 0, "11\n12"
         if "'kullanici=' ||" in sql:
@@ -267,7 +287,38 @@ class SahteKomut(Komut):
             return 0, "0"
         return 0, "\n".join(cikti)
 
+    def _prova_odoo(self, a):
+        """ajan/prova.py'nin tek seferlik Odoo'su: docker run ... <imaj> odoo [neutralize] -c ... -d <db> ..."""
+        i = a.index("odoo")
+        imaj, odoo = a[i - 1], a[i + 1:]
+        db = odoo[odoo.index("-d") + 1]
+        kod = next(a[j + 1].rsplit(":", 2)[0] for j, x in enumerate(a)
+                   if x == "-v" and a[j + 1].endswith(":/mnt/repo:ro"))
+        if odoo[0] == "neutralize":
+            self.notrlestirilen.append(db)
+            self.prova_calismalari.append((db, "neutralize", [], kod))
+            return 0, "Neutralization finished"
+        if odoo[0] == "shell":
+            self.prova_calismalari.append((db, "shell", [], kod))
+            cikti = self.duman_sirasi.pop(0) if self.duman_sirasi else self.duman_varsayilan
+            satir = "" if cikti is None else "\nVEKOSIS_DUMAN=" + json.dumps(cikti)
+            return 0, "2026-11-22 10:00:00,000 1 INFO prova odoo.modules.loading: Modules loaded." + satir
+        moduller = odoo[odoo.index("-u") + 1].split(",")
+        self.prova_calismalari.append((db, "-u", moduller, kod))
+        self.guncellenenler.append((db, moduller, kod, imaj))
+        if self.guncelleme_hatasi:
+            self.guncelleme_hatasi = False
+            return 1, "2026-11-22 10:00:00,000 1 ERROR prova odoo.modules.loading: Failed to load module"
+        if self.degismez_bozan:
+            self.degismez_bozan = False
+            self.degismez.setdefault(db, {})["yevmiye.1"] = "10;100.00;90.00;10.00;0.00;456"
+        return 0, ("2026-11-22 10:00:00,000 1 INFO prova odoo.modules.migration: module mod_a: Running migration "
+                   "[20.0.1.0.1>] post-migrate\n"
+                   f"2026-11-22 10:00:01,000 1 INFO prova odoo.modules.loading: {len(moduller)} modules updated")
+
     def _run(self, a):
+        if "vekosis.panel.prova=1" in a and "odoo" in a:
+            return self._prova_odoo(a)
         if "--entrypoint" in a and a[a.index("--entrypoint") + 1] == "python3":
             imaj = a[a.index("--entrypoint") + 2]
             betik = a[a.index("-c") + 1]

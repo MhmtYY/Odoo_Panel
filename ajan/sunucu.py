@@ -77,6 +77,12 @@ def rotalar(s):
         ("POST", rf"odoolar/({AD})/({ORT})/geri-al",
          lambda m, g, i: is_(s.deploylar.geri_al(m[1], m[2], g.get("no"), str(g.get("kip") or ""), k(i)))),
         ("POST", rf"odoolar/({AD})/({ORT})/uyumluluk", lambda m, g, i: is_(s.deploylar.uyumluluk_isi(m[1], m[2], k(i)))),
+        # ortam provası (prova.py): commit'i ortamın verisinin geçici kopyasında dener
+        ("GET", rf"odoolar/({AD})/({ORT})/provalar", lambda m, g, i: (200, {"provalar": s.provalar.kayitlar(m[1], m[2])})),
+        ("GET", rf"odoolar/({AD})/({ORT})/provalar/(\d+)", lambda m, g, i: (200, s.provalar.kayit_oku(m[1], m[2], m[3]))),
+        ("POST", rf"odoolar/({AD})/({ORT})/prova",
+         lambda m, g, i: is_(s.provalar.baslat(m[1], m[2], commit=g.get("commit"), kullanici=k(i)))),
+        ("POST", rf"odoolar/({AD})/prova-ayari", lambda m, g, i: (200, s.provalar.ayar_yaz(m[1], g))),
         ("POST", rf"odoolar/({AD})/production/production-al",
          lambda m, g, i: is_(s.deploylar.production_al(m[1], s.github, k(i)))),
         ("GET", rf"odoolar/({AD})/({ORT})/yedekler", lambda m, g, i: (200, {"yedekler": s.yedekler.liste(m[1], m[2])})),

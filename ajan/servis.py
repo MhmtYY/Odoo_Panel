@@ -12,6 +12,7 @@ from .komut import Komut
 from .kurulum import Kurulum
 from .odoolar import Odoolar
 from .ortam import Ortamlar
+from .prova import Provalar
 from .sablon import Sablonlar
 from .staging import Staging
 from .webhook import Webhook
@@ -47,6 +48,8 @@ class Servis:
         self.yedek_plani = YedekPlani(ayar, self.isler, self.ortamlar, self.odoolar, self.yedekler)
         self.deploylar = Deploylar(ayar, self.isler, self.ortamlar, self.odoolar, self.yedekler)
         self.staging = Staging(ayar, self.isler, self.ortamlar, self.odoolar, self.yedekler, self.deploylar)
+        self.provalar = Provalar(ayar, self.isler, self.ortamlar, self.odoolar, self.yedekler, self.deploylar)
+        self.deploylar.provalar = self.provalar
         self.sablonlar = Sablonlar(ayar, self.isler, self.ortamlar, self.odoolar)
         self.kurulum = Kurulum(ayar, self.komut, self.isler, self.ortamlar, self.odoolar, self.sablonlar)
         self.webhook = Webhook(ayar, self.odoolar, self.ortamlar, self.deploylar)

@@ -160,6 +160,7 @@ def hazirla():
                       "[ADD] ornek_satis_raporu: aylık satış özeti")
     s.webhook.push("ornek-yazilim/deneme-addons", "main", sha, tetik="webhook", kullanici="Ayşe Yılmaz",
                    bilgi={"baslik": "[ADD] ornek_satis_raporu: aylık satış özeti", "yazar": "Ayşe Yılmaz"})
+    ornek_provalar(s, komut, depo)
 
     # 2. depoya bağlı olmayan boş Odoo
     bekle(s, s.kurulum.kur({"id": "tekstil", "firma": "Örnek Mobilya Ltd.", "baslangic": "bos",
@@ -210,6 +211,46 @@ def hazirla():
     ornek_izleme(s)
     s.isler.senkron = False
     return s
+
+
+def ornek_provalar(s, komut, depo):
+    """1b. Production provaları (ajan/prova.py), ÖRNEK ölçümlerle (yalnız bu yerel sunucu için): aylık özet commit'i
+    e-Fatura XML'inde bildirilmemiş değişiklikle düşer; değişikliği yayın notunda bildiren commit geçer ve depoda
+    bekleyen commit olur."""
+    import copy
+    komut.degismez["pnl_deneme_prova"] = {
+        "yevmiye.1": "412;1284500.00;1284500.00;0.00;0.00;8812", "mizan.1": "0.00",
+        "hesap.1.120.01": "96;512400.00;388150.00;124250.00;0.00;1934", "hesap.1.600.01": "88;0.00;431900.00;-431900.00;0.00;2210",
+        "acik_kalem.1": "37;124250.00;0.00", "fis.1.out_invoice.posted": "88", "fis.1.in_invoice.posted": "41",
+        "fis_ozet.1": "5531", "mutabakat": "51;388150.00", "odeme.posted": "51", "odeme_ozet": "7710",
+        "ebelge.account_move.gib_state.sent": "84"}
+
+    def belge(i, ek=None):
+        yaprak = {"Invoice/cbc:ID[1]": f"a{i}", "Invoice/cbc:IssueDate[1]": f"d{i}",
+                  "Invoice/cac:TaxTotal[1]/cbc:TaxAmount[1]": f"t{i}",
+                  "Invoice/cac:LegalMonetaryTotal[1]/cbc:PayableAmount[1]": f"p{i}", **(ek or {})}
+        return {"yaprak": yaprak, "gonderilmis": i < 3, "xsd": True}
+
+    eski = {"surum": 1, "notlar": [], "ubl": {str(40 + i): belge(i) for i in range(4)},
+            "duman": {"satis": {"taslak": {"matrah": 2700.0, "vergi": 540.0, "toplam": 3240.0}},
+                      "alis": {"taslak": {"matrah": 1500.0, "vergi": 300.0, "toplam": 1800.0}},
+                      "odeme": {"odeme_durumu": "paid", "kalan": 0.0},
+                      "kur_degerleme": {"hata": "UserError: değerlenecek döviz bakiyesi yok"},
+                      "kdv1": {"atlandi": "modül yok"}}}
+    yeni = copy.deepcopy(eski)
+    sira = "Invoice/cac:TaxTotal[1]/cac:TaxSubtotal[1]/cbc:CalculationSequenceNumeric[1]"
+    yeni["ubl"] = {str(40 + i): belge(i, {sira: "c1"}) for i in range(4)}
+
+    komut.duman_sirasi = [eski, yeni]
+    s.provalar.baslat("deneme", "production", kullanici="ayse")
+    sha = depo.commit({"ornek_satis_raporu/models/ozet.py": "AYLIK = True\nKDV_SATIRI = True\n",
+                       "YAYIN_NOTU.md": "# Yayın\n\n## Beklenen belge değişiklikleri\n\n"
+                                        "- CalculationSequenceNumeric: tevkifatsız KDV alt toplamına sıra numarası\n"},
+                      "[FIX] ornek_satis_raporu: KDV alt toplamına sıra numarası")
+    s.webhook.push("ornek-yazilim/deneme-addons", "main", sha, tetik="webhook", kullanici="Ayşe Yılmaz",
+                   bilgi={"baslik": "[FIX] ornek_satis_raporu: KDV alt toplamına sıra numarası", "yazar": "Ayşe Yılmaz"})
+    komut.duman_sirasi = [eski, copy.deepcopy(yeni)]
+    s.provalar.baslat("deneme", "production", commit=sha, kullanici="ayse")
 
 
 class OrnekClaude:
