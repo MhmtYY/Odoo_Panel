@@ -217,3 +217,12 @@ class DeployTesti(Temel):
         bekleyen2 = self.s.deploylar.baslat("deneme", "production", kuyruk=True)
         self.assertEqual(self.s.isler.oku(bekleyen1["id"])["durum"], "atlandi")
         self.assertEqual(self.s.isler.oku(bekleyen2["id"])["durum"], "bekliyor")
+
+
+class KurulumBetigiTesti(Temel):
+    def test_posta_modulu_yoksa_kuyruk_silinmez(self):
+        """Boş kurulum (Enterprise / Vekosis imajı) mail'i kurmaz; mail_mail tablosu yoktur (decros 28.11)."""
+        from ajan.kurulum import KISISEL
+        betik = KISISEL % {"ayar": "{}"}
+        self.assertIn("if 'mail.mail' in env:\n    env.cr.execute('DELETE FROM mail_mail')", betik)
+        self.assertNotIn("\nenv.cr.execute('DELETE FROM mail_mail')", betik)

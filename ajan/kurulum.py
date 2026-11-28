@@ -38,7 +38,10 @@ if A['sablon'] and 'vekosis.sample.data' in env:
     if A['ornek']:
         sonuc = Ornek._vsd_load()
         print('ORNEK YUKLENDI: %%s kayit, hata: %%s' %% (sonuc['count'], len(sonuc['errors'])))
-env.cr.execute('DELETE FROM mail_mail')
+# Kuyrukta kalmış e-postalar gitmesin. Posta modülü yoksa tablo da yok: boş kurulum yalnız base + imajın listesini
+# kurar; Enterprise (web_enterprise) ve Vekosis imajının boş kurulumu mail'i kurmaz (Verisfa 16.11, decros 28.11).
+if 'mail.mail' in env:
+    env.cr.execute('DELETE FROM mail_mail')
 env.cr.commit()
 print('KISISEL_TAMAM')
 """
