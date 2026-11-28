@@ -38,9 +38,14 @@ def rotalar(s):
     def is_(kayit_):
         return 202, kayit_
 
+    def _is_ya_da(sonuc):
+        """İş kaydı (202) ya da hemen biten işlemin sonucu (200)."""
+        return (202, sonuc) if isinstance(sonuc, dict) and "id" in sonuc and "durum" in sonuc else (200, sonuc)
+
     return [
         ("GET", r"saglik", lambda m, g, i: (200, {"durum": "ok", "surum": SURUM, "alan": s.ayar.alan,
-                                                  "kuru": s.ayar.kuru, "app": s.github.app_var()})),
+                                                  "kuru": s.ayar.kuru, "app": s.github.app_var(),
+                                                  "alan_adi": s.alan_adlari.acik()})),
         ("GET", r"odoolar", lambda m, g, i: (200, s.odoo_listesi())),
         ("POST", r"odoolar", lambda m, g, i: is_(s.kurulum.kur(g, k(i)))),
         ("GET", r"sablon", lambda m, g, i: (200, {"sablon": s.kurulum.sablon()})),
@@ -55,6 +60,11 @@ def rotalar(s):
         ("GET", rf"odoolar/({AD})/giris", lambda m, g, i: (200, s.giris_bilgisi(m[1]))),
         ("POST", rf"odoolar/({AD})/baglantiyi-kaldir", lambda m, g, i: (200, s.kurulum.baglantiyi_kaldir(m[1]))),
         ("POST", rf"odoolar/({AD})/islemler", lambda m, g, i: (200, _islemler(s, m[1], g))),
+        # alan adı (alan_adi.py): panelin kurduğu platformun kendi adı
+        ("GET", rf"odoolar/({AD})/alan-adi", lambda m, g, i: (200, s.alan_adlari.durum(m[1]))),
+        ("POST", rf"odoolar/({AD})/alan-adi", lambda m, g, i: (200, s.alan_adlari.kaydet(m[1], g, k(i)))),
+        ("POST", rf"odoolar/({AD})/alan-adi/uygula", lambda m, g, i: is_(s.alan_adlari.uygula(m[1], k(i)))),
+        ("POST", rf"odoolar/({AD})/alan-adi/kaldir", lambda m, g, i: _is_ya_da(s.alan_adlari.kaldir(m[1], k(i)))),
         # depo
         ("POST", rf"odoolar/({AD})/depo", lambda m, g, i: (200, s.odoolar.depo_bagla(s.odoolar.gerekli(m[1]), g))),
         ("POST", rf"odoolar/({AD})/depo/anahtar", lambda m, g, i: (200, {"acik_anahtar": _anahtar(s, g)})),

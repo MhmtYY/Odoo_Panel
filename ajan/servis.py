@@ -2,6 +2,7 @@
 import json
 
 from . import kayit, uyumluluk
+from .alan_adi import AlanAdlari
 from .asistan import Asistan
 from .deploy import Deploylar
 from .github import GitHub, urllib_istek
@@ -52,6 +53,8 @@ class Servis:
         self.deploylar.provalar = self.provalar
         self.sablonlar = Sablonlar(ayar, self.isler, self.ortamlar, self.odoolar)
         self.kurulum = Kurulum(ayar, self.komut, self.isler, self.ortamlar, self.odoolar, self.sablonlar)
+        self.alan_adlari = AlanAdlari(ayar, self.komut, self.isler, self.ortamlar, self.odoolar)
+        self.kurulum.alan_adlari = self.alan_adlari  # platform silinirken kuralı ve izni kaldırır
         self.webhook = Webhook(ayar, self.odoolar, self.ortamlar, self.deploylar)
         self.zipdepo = ZipDepo(ayar, self.isler, self.ortamlar, self.odoolar, self.deploylar, self.github, self.webhook)
         self.izleme = Izleme(ayar, self.komut, self.ortamlar, self.odoolar, self.deploylar)
@@ -71,7 +74,7 @@ class Servis:
 
     def ortam_ozeti(self, o, durum=False):
         alanlar = ("ad", "yonetim", "konteyner", "adres", "imaj", "imaj_temel", "commit", "son_deploy",
-                   "son_deploy_tarih", "bekleyen", "veri_kaynak", "yenileme", "notr", "db_adi", "olusturma")
+                   "son_deploy_tarih", "bekleyen", "veri_kaynak", "yenileme", "notr", "db_adi", "olusturma", "alan_adi")
         ozet = {k: o.get(k) for k in alanlar}
         ozet["mesgul"] = self.isler.mesgul(f"{o['odoo']}/{o['ad']}")
         if durum:
@@ -90,10 +93,13 @@ class Servis:
         return {"odoolar": liste, "bos_bellek_mb": self.ortamlar.bos_bellek_mb()}
 
     def giris_bilgisi(self, odoo_id):
-        self.odoolar.gerekli(odoo_id)
+        od = self.odoolar.gerekli(odoo_id)
         bilgi = kayit.oku(self.ayar.odoolar / odoo_id / "giris.json")
         if not bilgi:
             raise Hata(404, "Bu Odoo için saklanan giriş bilgisi yok (bağlanan kurulum ya da eski kayıt).")
+        pr = self.ortamlar.oku(odoo_id, "production") if od.get("tur") == "panel" else None
+        if pr and pr.get("adres"):  # kurulumdan sonra alan adı verilmiş olabilir
+            bilgi = {**bilgi, "adres": pr["adres"]}
         return bilgi
 
     # ------------------------------------------------------------ durdur / başlat

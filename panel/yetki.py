@@ -45,6 +45,8 @@ ISTEKLER = [
     ("GET", rf"odoolar/({AD})/giris", "kur", "odoo"),
     ("POST", rf"odoolar/({AD})/baglantiyi-kaldir", "bagla", "tum"),
     ("POST", rf"odoolar/({AD})/islemler", "bagla", "tum"),
+    ("GET", rf"odoolar/({AD})/alan-adi", "izle", "odoo"),
+    ("POST", rf"odoolar/({AD})/alan-adi(/uygula|/kaldir)?", "alanAdi", "odoo"),
     ("POST", rf"odoolar/({AD})/depo", "github", "odoo"),
     ("POST", rf"odoolar/({AD})/depo/anahtar", "github", "odoo"),
     ("POST", rf"odoolar/({AD})/depo/kaldir", "github", "odoo"),

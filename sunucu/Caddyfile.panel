@@ -32,3 +32,7 @@ panel.vekosis.com {
         request_buffers 16MB
     }
 }
+
+# Platformların kendi alan adları (ör. decros.test.vekosis.com): panel ajanı /opt/edge/etc/panel-alanlar/<ad>.caddy
+# olarak yazar. Tam ad joker kuralların önüne geçer; klasör boşsa Caddy yalnız uyarı verir.
+import /etc/caddy/panel-alanlar/*.caddy

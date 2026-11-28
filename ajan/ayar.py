@@ -25,6 +25,11 @@ class Ayar:
     pg_konteyner: str = "vtest-postgres"
     pg_su: str = "postgres"
     kenar_tenants: Path = Path("/opt/edge/etc/tenants")
+    # platformların kendi alan adı (alan_adi.py): kural klasörü (sunucuda; panel.caddy "import <klasör>/*.caddy" ile
+    # okur), kenar Caddy konteyneri ve konteynerdeki ana yapılandırma. Klasör tanımlı değilse özellik kapalı.
+    caddy_alanlar: Path | None = None
+    caddy_konteyner: str = "edge-caddy"
+    caddy_config: str = "/etc/caddy/Caddyfile"
     vtest_kok: Path = Path("/opt/vekosis-test")
     adres: str = "127.0.0.1"
     port: int = 8098
@@ -130,10 +135,12 @@ def ortamdan(env=None):
         "PANEL_PG": ("pg_konteyner", str), "PANEL_KENAR_TENANTS": ("kenar_tenants", Path),
         "PANEL_VTEST_KOK": ("vtest_kok", Path), "AJAN_ADRES": ("adres", str), "AJAN_PORT": ("port", int),
         "AJAN_IZINLI": ("izinli_konteyner", str), "PANEL_BELLEK_PAYI_MB": ("bellek_payi_mb", int),
-        "PANEL_AGIR_IS": ("agir_is_siniri", int),
+        "PANEL_AGIR_IS": ("agir_is_siniri", int), "PANEL_CADDY": ("caddy_konteyner", str),
     }
     for anahtar, (alan, tur) in eslem.items():
         if env.get(anahtar):
             setattr(ayar, alan, tur(env[anahtar]))
+    if "PANEL_CADDY_ALANLAR" in env:  # boş değer: alan adı özelliği kapalı
+        ayar.caddy_alanlar = Path(env["PANEL_CADDY_ALANLAR"]) if env["PANEL_CADDY_ALANLAR"] else None
     ayar.kuru = env.get("AJAN_KURU") == "1"
     return ayar

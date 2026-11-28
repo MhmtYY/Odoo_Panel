@@ -14,6 +14,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 
 from . import kayit
+from .alan_adi import adres_sql
 from .hata import Hata
 
 ETIKET_DESEN = re.compile(r"^[A-Z][A-Z-]{1,30}$")
@@ -148,4 +149,8 @@ class Yedekler:
                 b.yaz(f"{sayi} kurulu modül")
             with b.adim("Dosya deposu yükleniyor"):
                 self.ortamlar.filestore_ac(o, b, klasor, meta.get("db_adi") or o["db_adi"])
+        alan = o.get("alan_adi") or {}
+        if alan.get("durum") == "etkin":  # alan adından önce alınmış yedek panel adresini getirir
+            with b.adim(f"Odoo adresi: https://{alan['alan']}"):
+                self.ortamlar.psql(o, adres_sql(alan["alan"], [self.ayar.adres_adi(o["odoo"], o["ad"])]), b=b)
         return meta

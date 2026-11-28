@@ -52,6 +52,7 @@ class Kurulum:
         self.ortamlar = ortamlar
         self.odoolar = odoolar
         self.sablonlar = sablonlar
+        self.alan_adlari = None  # servis bağlar (alan_adi.py)
 
     # ------------------------------------------------------------ test platformu şablonu
     def sablon(self):
@@ -245,6 +246,8 @@ REVOKE ALL ON SCHEMA public FROM "t_sablon";
             with b.adim("Son yedek alınıyor (silinmez)"):
                 yedek = yedekler.al(pr, b, "SILINMEDEN-ONCE")["dosya"]
             with b.adim("Production siliniyor"):
+                if self.alan_adlari is not None:
+                    self.alan_adlari.temizle(b, pr)
                 self._geri_al(b, pr, ["konteyner", "adres", "db", "birim"])
                 arsiv = self.ayar.kok / "silinenler" / f"{odoo_id}-{kayit.simdi().replace(':', '')}"
                 arsiv.parent.mkdir(parents=True, exist_ok=True)

@@ -56,6 +56,16 @@ Geri dönüş: `bash /opt/odoo-panel/kod/sunucu/kaldir.sh`. Caddy satırını ç
 
 Eski test platformunun `kur.sh` betiği Caddyfile'ı baştan yazar. O çalışırsa paneldeki `import` satırı gider. Panelin `kur.sh` betiğini tekrar çalıştırmak satırı geri koyar.
 
+## Platformun kendi alan adı
+
+Panelin kurduğu platform `<ad>.panel.vekosis.com` adresinde açılır. Ayarlar > Alan adı bölümünden başka bir ad verilebilir (ör. `decros.test.vekosis.com`, `erp.firma.com.tr`). Kod: `ajan/alan_adi.py`.
+
+- **Kaydet:** ad denetlenir. Panelin kendi adları, başka platformun adı, Caddy'de başka yere giden ad ve test platformunda dolu olan ad (`*.test.vekosis.com` altında `odoo-<ad>` varsa) kabul edilmez. DNS raporu gösterilir; A kaydı bu sunucuyu göstermeden uygulanmaz.
+- **Uygula:** sertifika izni ve `/opt/edge/etc/panel-alanlar/<ad>.caddy` kuralı yazılır (Caddy önce doğrular), sertifika alınır, Odoo'nun `web.base.url`'si yeni ad olur ve Odoo yeniden başlar, panel adresi yeni ada yönlenir (302), son denetim yapılır. Bir adım geçmezse yapılanlar geri alınır.
+- **Kaldır:** kural ve izin kalkar, Odoo'nun adresi panel adresine döner.
+- Staging panel adresinde kalır. Platform silinince kural ve izin de kalkar. Yedekten geri yüklemede Odoo'nun adresi yeni ad olarak yazılır.
+- Kural klasörünü `panel.caddy` içe aktarır (`kur.sh` klasörü açar, ajana `PANEL_CADDY_ALANLAR` ile verir).
+
 ## Bağlanan kurulumlar
 
 Panelin kurmadığı Odoo'lar (erp.vekosis.com, test platformundaki ortamlar) "bağlanır". Bağlarken hiçbir şey yeniden başlatılmaz, compose dosyalarına dokunulmaz. Bağlanan kurulumda panel şunları yapar:

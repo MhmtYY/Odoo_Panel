@@ -1732,6 +1732,7 @@ ODOO_SEKME.ayarlar = async (od, ortamAd) => {
     const bolumler = [];
     if (od.tur === "bagli") bolumler.push(bagliBolum(od));
     if (od.tur === "panel" && yetkili("github")) bolumler.push(depoBolum(od), provaAyarBolumu(od));
+    if (od.tur === "panel" && pr && ortamAd === "production") bolumler.push(await alanAdiBolumu(od));
     if (st && yetkili("stagingYenile")) {
         bolumler.push(`<section class="kart kart-ic ort-staging">
             <h2 style="margin-bottom:.35rem">Staging</h2>
@@ -1757,6 +1758,55 @@ ODOO_SEKME.ayarlar = async (od, ortamAd) => {
     }
     return [`<div class="yigin" style="max-width:920px">${bolumler.join("") || bosDurum("Ayar yok", "Bu platform için değiştirebileceğiniz ayar yok.")}</div>`, () => depoFormuBagla(od)];
 };
+/* Platformun kendi alan adı (ajan/alan_adi.py): kaydet + DNS denetimi, uygula (iş), kaldır. */
+async function alanAdiBolumu(od) {
+    const v = await ajan.al(`odoolar/${od.id}/alan-adi`).catch(() => null);
+    if (!v) return "";
+    const k = v.kayit, r = v.rapor;
+    const etkin = !!(k && k.durum === "etkin");
+    const ip = v.ip || "bu sunucunun adresi";
+    const ac = (ad) => `<a href="https://${esc(ad)}" target="_blank" rel="noopener noreferrer"><code>${esc(ad)}</code></a>`;
+    return `<section class="kart kart-ic" id="alan-adi">
+        <h2 style="margin-bottom:.35rem">Alan adı</h2>
+        <p class="soluk kucuk-yazi">Platform ${ac(v.panel_adresi)} adresinde açılır. Kendi adını verirseniz Odoo o adla açılır, panel adresi oraya yönlenir; staging panel adresinde kalır. DNS'te adın A kaydı <code>${esc(ip)}</code> olmalı.</p>
+        ${v.acik ? "" : uyariKutu("gri", "Bu sunucuda alan adı kuralları kurulu değil. Panelin kurulum betiği bu sürümle yeniden çalıştırılınca açılır.")}
+        ${k ? `<div class="bilgi-satir"><span>Alan adı</span>${etkin ? ac(k.alan) : `<code>${esc(k.alan)}</code>`}</div>
+            <div class="bilgi-satir"><span>Durum</span><span class="deger">${etkin ? `<span class="rozet basarili">Yayında</span>` : "Henüz uygulanmadı"}</span></div>
+            ${r ? `<div class="bilgi-satir"><span>DNS</span><span class="deger">${r.hazir ? `<span class="rozet basarili">Hazır</span>` : `<span class="rozet uyari">Hazır değil</span>`}${(r.gorunen || []).length ? ` <span class="soluk kucuk-yazi">${esc(r.gorunen.join(", "))}</span>` : ""}</span></div>
+                ${(r.engeller || []).length ? uyariKutu("sari", r.engeller.map(esc).join("<br>")) : ""}
+                ${(r.uyarilar || []).length ? uyariKutu("gri", r.uyarilar.map(esc).join("<br>")) : ""}` : ""}` : ""}
+        ${v.acik && yetkili("alanAdi") ? `<form class="uste-az" data-form="alan-adi" data-odoo="${esc(od.id)}">
+            <label class="alan">Alan adı<input name="alan" required value="${esc(k ? k.alan : "")}" ${etkin ? "readonly" : ""} placeholder="erp.ornekfirma.com.tr" autocomplete="off" spellcheck="false"></label>
+            <div class="dugmeler">
+                ${etkin ? "" : `<button class="btn" type="submit">Kaydet ve DNS'i denetle</button>`}
+                ${k && !etkin ? `<button class="btn birincil" type="button" data-eylem="alan-adi-uygula" data-odoo="${esc(od.id)}" data-alan="${esc(k.alan)}" ${r && r.hazir ? "" : "disabled title='DNS hazır değil'"}>Uygula</button>` : ""}
+                ${k ? `<button class="btn tehlike-cizgi" type="button" data-eylem="alan-adi-kaldir" data-odoo="${esc(od.id)}" data-alan="${esc(k.alan)}" data-etkin="${etkin ? "1" : ""}" data-panel="${esc(v.panel_adresi)}">Kaldır</button>` : ""}
+            </div>
+        </form>` : ""}
+    </section>`;
+}
+FORM["alan-adi"] = async (f) => {
+    const v = await dene(() => ajan.gonder(`odoolar/${f.dataset.odoo}/alan-adi`, { alan: f.elements.alan.value.trim() }), "Alan adı");
+    if (v) { bildir(v.rapor && v.rapor.hazir ? "Kaydedildi; DNS hazır, uygulanabilir." : "Kaydedildi; DNS henüz hazır değil."); ciz({ sessiz: true }); }
+};
+EYLEM["alan-adi-uygula"] = (el) => onayPenceresi({
+    baslik: "Alan adını uygula",
+    metin: `<code>${esc(el.dataset.alan)}</code> bu platformun adresi olur: Caddy kuralı yazılır, sertifika alınır, Odoo'nun adresi değişir ve Odoo yeniden başlar (yaklaşık bir dakika erişilemez). Panel adresi bu ada yönlenir. Bir adım geçmezse yapılanlar geri alınır.`,
+    dugme: "Uygula",
+    evet: async () => { pencereKapat(); await isBaslat(() => ajan.gonder(`odoolar/${el.dataset.odoo}/alan-adi/uygula`), `${el.dataset.alan} uygulanıyor`); },
+});
+EYLEM["alan-adi-kaldir"] = (el) => onayPenceresi({
+    baslik: "Alan adını kaldır",
+    metin: el.dataset.etkin
+        ? `Caddy kuralı ve sertifika izni kaldırılır, Odoo'nun adresi <code>${esc(el.dataset.panel)}</code> olur ve Odoo yeniden başlar. <code>${esc(el.dataset.alan)}</code> artık bu platforma gitmez.`
+        : "Kayıt silinir; henüz uygulanmadığı için başka bir şey değişmez.",
+    dugme: "Kaldır", tehlike: true, tur: "kirmizi",
+    evet: async () => {
+        pencereKapat();
+        const v = await isBaslat(() => ajan.gonder(`odoolar/${el.dataset.odoo}/alan-adi/kaldir`), `${el.dataset.alan} kaldırılıyor`);
+        if (v && v.silindi) { bildir("Kayıt silindi."); ciz({ sessiz: true }); }
+    },
+});
 function bagliBolum(od) {
     const yetki = yetkili("bagla") && tumKapsam();
     return `<section class="kart kart-ic">

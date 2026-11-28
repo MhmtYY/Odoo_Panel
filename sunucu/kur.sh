@@ -6,7 +6,8 @@
 #   3/7 ayarlar      -> /opt/odoo-panel/ayar: ajan.env, ajan anahtarı, webhook sırrı, github.com host anahtarı
 #   4/7 ajan         -> systemd odoo-panel-ajan (vtest ağ geçidi:8098) + otomatik yedek zamanlayıcısı (saatte bir, xx:20)
 #   5/7 panel        -> pnl-panel konteyneri (root yetkisi yok, salt okunur dosya sistemi)
-#   6/7 Caddy        -> /opt/edge/etc/panel.caddy + Caddyfile'a tek "import" satırı. Önce yedek ve doğrulama;
+#   6/7 Caddy        -> /opt/edge/etc/panel.caddy (platformların alan adı kuralları /opt/edge/etc/panel-alanlar/*.caddy
+#                       klasörünü içe aktarır) + Caddyfile'a tek "import" satırı. Önce yedek ve doğrulama;
 #                       erp.vekosis.com, test.vekosis.com ve musteri.test.vekosis.com önceki gibi yanıt vermezse
 #                       eski Caddyfile geri konur. DNS'te panel.vekosis.com yoksa bu adım atlanır.
 #   7/7 ilk kullanıcı ve son denetim
@@ -98,6 +99,8 @@ PANEL_ALAN=$ALAN
 PANEL_AG=$AG
 PANEL_PG=vtest-postgres
 PANEL_KENAR_TENANTS=$KENAR/etc/tenants
+PANEL_CADDY=edge-caddy
+PANEL_CADDY_ALANLAR=$KENAR/etc/panel-alanlar
 PANEL_VTEST_KOK=/opt/vekosis-test
 AJAN_ADRES=$GW
 AJAN_PORT=$PORT
@@ -194,6 +197,9 @@ else
     for S in "${SITELER[@]}"; do set -- $S; ONCE[$1]=$(https_kod "$1" "$2"); done
     KAYNAK="$H/sunucu/Caddyfile.panel"
     SATIR="import /etc/caddy/panel.caddy"
+    # Platformların alan adı kuralları (ajan/alan_adi.py) bu klasöre yazılır; panel.caddy içe aktarır
+    mkdir -p "$KENAR/etc/panel-alanlar"
+    chmod 755 "$KENAR/etc/panel-alanlar"
     DENEME=$(mktemp -d)
     cp -a "$KENAR/etc/." "$DENEME/"
     install -m 644 "$KAYNAK" "$DENEME/panel.caddy"
